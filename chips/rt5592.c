@@ -37,7 +37,6 @@ REG_PAIR RF5592Reg_2G_5G[] =
 {
 	{RF_R01, 0x3F},
 	{RF_R03, 0x08},
-	{RF_R03, 0x08},
 	{RF_R05, 0x10},
 	{RF_R06, 0xE4},
 	{RF_R07, 0x00},
@@ -249,6 +248,7 @@ const REG_PAIR BBP5592Reg_2G_5G[] =
 	{BBP_R134, 0xD0},
 	{BBP_R135, 0xF6},
 	{BBP_R137, 0x0F}, /* for RT5592 CISCO IOT issue(20110629) */
+	{BBP_R148, 0x84}, /* enhance RX angle sensitivity issue */
 };
 
 /* BBP for G band */
@@ -272,9 +272,15 @@ const REG_PAIR BBP5592Reg_5G[] =
 /* BBP for A/G band GLRT function(BBP_128 ~ BBP_221) */
 const UCHAR BBP5592Reg_GLRT_2G_5G[] = 
 {
+#if 0 //yiwei sync bbp!
 	0xE0, 0x1F, 0X38, 0x32, 0x08, 0x28, 0x19, 0x0A, 0xFF, 0x00, /* 128 ~ 137 */
 	0x16, 0x10, 0x10, 0x0B, 0x36, 0x2C, 0x26, 0x24, 0x42, 0x36, /* 138 ~ 147 */
 	0x30, 0x2D, 0x4C, 0x46, 0x3D, 0x40, 0x3E, 0x42, 0x3D, 0x40, /* 148 ~ 157 */
+#else
+	0xE0, 0x1E, 0X38, 0x32, 0x08, 0x28, 0x19, 0x0A, 0xFF, 0x00, /* 128 ~ 137 */
+	0x16, 0x10, 0x10, 0x0B, 0x36, 0x2C, 0x26, 0x24, 0x20, 0x20, /* 138 ~ 147 */
+	0x20, 0x20, 0x4C, 0x46, 0x3D, 0x40, 0x3E, 0x42, 0x3D, 0x40, /* 148 ~ 157 */
+#endif
 	0X3C, 0x34, 0x2C, 0x2F, 0x3C, 0x35, 0x2E, 0x2A, 0x49, 0x41, /* 158 ~ 167 */
 	0x36, 0x31, 0x30, 0x30, 0x0E, 0x0D, 0x28, 0x21, 0x1C, 0x16, /* 168 ~ 177 */
 	0x50, 0x4A, 0x43, 0x40, 0x10, 0x10, 0x10, 0x10, 0x00, 0x00, /* 178 ~ 187 */
@@ -287,7 +293,11 @@ const UCHAR BBP5592Reg_GLRT_2G_5G[] =
 const REG_PAIR BBP5592Reg_GLRT_2G[] =
 {
 	{BBP_R128, 0xE0}, /* DLINK-825 low TP IOT issue (Disable GLRT-DCC)(20110629) */
+#if 0 //yiwei sync bbp!
 	{BBP_R129, 0x1F},
+#else
+	{BBP_R129, 0x1E},
+#endif
 	{BBP_R130, 0x38},
 	{BBP_R131, 0x32},
 	{BBP_R133, 0x28},
@@ -1426,16 +1436,56 @@ static UCHAR RT5592_ChipAGCAdjust(
 	IN UCHAR				OrigR66Value)
 {
 	UCHAR R66;
-
-	if (Rssi > RSSI_FOR_MID_LOW_SENSIBILITY)
+	UCHAR R65;
+	
+	
+	if (Rssi > (-40) /*RSSI_FOR_MID_LOW_SENSIBILITY*/)
 	{
 		if (pAd->LatchRfRegs.Channel <= 14)
+		{
 			R66 = 0x1C + (GET_LNA_GAIN(pAd) << 1) + 0x20;
-		else
-			R66 = 0x24 + (GET_LNA_GAIN(pAd) << 1) + 0x20;
 
+		}else
+		{
+			R66 = 0x24  + (GET_LNA_GAIN(pAd) << 1) + 0x20;
+		}
+
+		R65 = 0x25;
 		RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R83, 0x4A);
 	}
+#if 1 //yiwei MIDDLE case
+	else if ((Rssi > (-60)))
+	{
+		if (pAd->LatchRfRegs.Channel <= 14)
+		{
+			R66 = 0x1C + (GET_LNA_GAIN(pAd) << 1) + 0x20;
+		}else
+		{
+			R66 = 0x24  + (GET_LNA_GAIN(pAd) << 1) + 0x20;
+		}
+
+		R65 = 0x2c;
+		RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R83, 0x4A);
+
+	
+	}
+	else if ((Rssi > -75))
+	{
+
+		if (pAd->LatchRfRegs.Channel <= 14)
+		{
+			R66 = 0x1C + (GET_LNA_GAIN(pAd) << 1) + 0x10;
+		}else
+		{
+			R66 = 0x24  + (GET_LNA_GAIN(pAd) << 1) + 0x10;
+		}
+
+		R65=0x2c;
+
+		RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R83, 0x7A);
+		
+	}
+#endif
 	else
 	{
 		if (pAd->LatchRfRegs.Channel <= 14)
@@ -1444,7 +1494,14 @@ static UCHAR RT5592_ChipAGCAdjust(
 			R66 = 0x24 + (GET_LNA_GAIN(pAd) << 1);
 
 		RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R83, 0x7A);
+
+		R65 =0x2c;
 	}
+
+#if 1 //yiwei  write bbp 65
+	RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R65, R65);			
+#endif
+
 
 	if (OrigR66Value != R66)
 		AsicBBPWriteWithRxChain(pAd, BBP_R66, R66, RX_CHAIN_ALL);

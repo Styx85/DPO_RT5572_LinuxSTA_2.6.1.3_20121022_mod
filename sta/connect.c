@@ -2675,6 +2675,14 @@ VOID LinkDown(
 	if (pAd->chipCap.FreqCalibrationSupport) 
 		StopFrequencyCalibration(pAd);
 #endif /* RTMP_FREQ_CALIBRATION_SUPPORT */
+
+#if 1 //yiwei restore BBP R65 to 2c
+	{
+		UCHAR R65 = 0x2c;
+		RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R65, R65);
+	}
+#endif
+
 }
 
 /*
