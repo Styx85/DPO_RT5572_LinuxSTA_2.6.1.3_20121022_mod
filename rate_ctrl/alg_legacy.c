@@ -92,6 +92,29 @@ VOID MlmeDynamicTxRateSwitching(
 		if (RTMPCheckEntryEnableAutoRateSwitch(pAd, pEntry) == FALSE)
 			continue;
 
+#ifdef CONFIG_MULTI_CHANNEL
+		if (IS_ENTRY_CLIENT(pEntry) && 
+			IS_P2P_ENTRY_NONE(pEntry))
+		{
+			if (pAd->Mlme.StaStayTick == (pAd->ra_interval / 100))
+			{
+				pAd->Mlme.StaStayTick = 0;
+			}
+			else
+				continue;
+		}
+
+		if (IS_P2P_CLI_ENTRY(pEntry))
+		{
+			if (pAd->Mlme.P2pStayTick == (pAd->ra_interval / 100))
+			{
+				pAd->Mlme.P2pStayTick = 0;
+			}
+			else
+				continue;
+		}
+#endif /* CONFIG_MULTI_CHANNEL */
+
 		MlmeSelectTxRateTable(pAd, pEntry, &pTable, &TableSize, &InitTxRateIdx);
 		pEntry->pTable = pTable;
 

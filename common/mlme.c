@@ -278,6 +278,11 @@ NDIS_STATUS MlmeInit(
 		/* Init mlme periodic timer*/
 		RTMPInitTimer(pAd, &pAd->Mlme.PeriodicTimer, GET_TIMER_FUNCTION(MlmePeriodicExec), pAd, TRUE);
 
+#ifdef CONFIG_MULTI_CHANNEL
+		pAd->Mlme.StaStayTick = 0;
+		pAd->Mlme.P2pStayTick = 0;
+#endif /* CONFIG_MULTI_CHANNEL */
+
 		/* Set mlme periodic timer*/
 		RTMPSetTimer(&pAd->Mlme.PeriodicTimer, MLME_TASK_EXEC_INTV);
 
@@ -667,12 +672,37 @@ VOID MlmePeriodicExec(
 	NICUpdateFifoStaCounters(pAd);
 #endif /* RTMP_MAC_USB */
 
+#ifdef CONFIG_MULTI_CHANNEL
+	/*
+		Use StayTicks to call MlmeDynamicTxRateSwitching
+	*/
+	if ((OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED)
+			)
+		&& (!OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_DOZE)))
+	{
+	
+		if (INFRA_ON(pAd) 
+			&& ((pAd->MultiChannelFlowCtl & EDCA_AC0_DEQUEUE_DISABLE) == 0))
+		{
+			pAd->Mlme.StaStayTick++;			
+		}
+
+		if (P2P_CLI_ON(pAd)
+			&& ((pAd->MultiChannelFlowCtl & HCCA_DEQUEUE_DISABLE) == 0))
+		{
+			pAd->Mlme.P2pStayTick++;			
+		}
+		MlmeDynamicTxRateSwitching(pAd);
+	}
+#endif /* CONFIG_MULTI_CHANNEL */
+
 	/* by default, execute every 500ms */
 	if ((pAd->ra_interval) && 
 		((pAd->Mlme.PeriodicRound % (pAd->ra_interval / 100)) == 0) && 
 		RTMPAutoRateSwitchCheck(pAd)/*(OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_TX_RATE_SWITCH_ENABLED))*/
 	)
 	{
+#ifndef CONFIG_MULTI_CHANNEL
 #ifdef CONFIG_STA_SUPPORT
 		/* perform dynamic tx rate switching based on past TX history*/
 		IF_DEV_CONFIG_OPMODE_ON_STA(pAd)
@@ -683,6 +713,7 @@ VOID MlmePeriodicExec(
 				MlmeDynamicTxRateSwitching(pAd);
 		}
 #endif /* CONFIG_STA_SUPPORT */
+#endif /* !CONFIG_MULTI_CHANNEL */
 	}
 
 
@@ -715,7 +746,9 @@ VOID MlmePeriodicExec(
 
 #ifdef RTMP_MAC_USB
 #ifndef INF_AMAZON_SE
+#ifndef CONFIG_MULTI_CHANNEL
 		RTUSBWatchDog(pAd);
+#endif /* ! CONFIG_MULTI_CHANNEL */
 #endif /* INF_AMAZON_SE */
 #endif /* RTMP_MAC_USB */
 
@@ -876,6 +909,8 @@ VOID STAMlmePeriodicExec(
 	POS_COOKIE  pObj = (POS_COOKIE) pAd->OS_Cookie;
 #endif /* USB_SUPPORT_SELECTIVE_SUSPEND */
 #endif /* CONFIG_PM */
+#ifdef CONFIG_MULTI_CHANNEL
+#endif /*CONFIG_MULTI_CHANNEL*/
 
 	RTMP_CHIP_HIGH_POWER_TUNING(pAd, &pAd->StaCfg.RssiSample);
 
@@ -912,6 +947,7 @@ VOID STAMlmePeriodicExec(
 	}
 
 #endif /* RTMP_MAC_USB */
+
 
 
 	
@@ -1119,6 +1155,9 @@ VOID STAMlmePeriodicExec(
 			(pAd->StaCfg.bImprovedScan == FALSE) &&
 			(((TxTotalCnt + pAd->RalinkCounters.OneSecRxOkCnt) < 600)))
 		{
+#ifdef CONFIG_MULTI_CHANNEL
+			if (!P2P_CLI_ON(pAd))
+#endif /*CONFIG_MULTI_CHANNEL*/
 			RTMPSetAGCInitValue(pAd, BW_20);
 			DBGPRINT(RT_DEBUG_TRACE, ("MMCHK - No BEACON. restore R66 to the low bound(%d) \n", (0x2E + GET_LNA_GAIN(pAd))));
 		}
@@ -1216,12 +1255,19 @@ VOID STAMlmePeriodicExec(
 
         /*if ((pAd->RalinkCounters.OneSecTxNoRetryOkCount == 0) &&*/
         /*    (pAd->RalinkCounters.OneSecTxRetryOkCount == 0))*/
+
+#ifdef CONFIG_MULTI_CHANNEL
+	if (INFRA_ON(pAd) && (P2P_CLI_ON(pAd) | P2P_GO_ON(pAd)))
+		; /* Doesn't need to send null frame in this case. */
+	else
+#endif /* CONFIG_MULTI_CHANNEL */
        if ((!RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS)))
         {
     		if (pAd->StaCfg.UapsdInfo.bAPSDCapable && pAd->CommonCfg.APEdcaParm.bAPSDCapable)
     		{
     		    /* When APSD is enabled, the period changes as 20 sec*/
-    			if ((pAd->Mlme.OneSecPeriodicRound % 20) == 8)
+    			if (((pAd->Mlme.OneSecPeriodicRound % 20) == 8)
+				)
     			{
     				RTMPSendNullFrame(pAd, pAd->CommonCfg.TxRate, TRUE, pAd->CommonCfg.bAPSDForcePowerSave ? PWR_SAVE : pAd->StaCfg.Psm);
     			}
@@ -1229,17 +1275,29 @@ VOID STAMlmePeriodicExec(
     		else
     		{
     		    /* Send out a NULL frame every 10 sec to inform AP that STA is still alive (Avoid being age out)*/
-    			if ((pAd->Mlme.OneSecPeriodicRound % 10) == 8)
+    			if (((pAd->Mlme.OneSecPeriodicRound % 10) == 8)
+				)
 			{
 				RTMPSendNullFrame(pAd, 
 								  pAd->CommonCfg.TxRate, 
 								  (pAd->CommonCfg.bWmmCapable & pAd->CommonCfg.APEdcaParm.bValid),
 								  pAd->CommonCfg.bAPSDForcePowerSave ? PWR_SAVE : pAd->StaCfg.Psm);
+
+#ifdef CONFIG_MULTI_CHANNEL
+				RTMPP2PSendNullFrame(pAd, 
+									pAd->CommonCfg.TxRate, 
+									(OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_WMM_INUSED) ? TRUE:FALSE),
+									pAd->CommonCfg.bAPSDForcePowerSave ? PWR_SAVE : pAd->StaCfg.Psm);
+#endif /* CONFIG_MULTI_CHANNEL */
 			}
     		}
         }
 
-		if (CQI_IS_DEAD(pAd->Mlme.ChannelQuality))
+		if (CQI_IS_DEAD(pAd->Mlme.ChannelQuality)
+#ifdef CONFIG_MULTI_CHANNEL
+			&& (pWscControl->bWscTrigger == FALSE)
+#endif /*CONFIG_MULTI_CHANNEL*/
+			)
 			{
 			DBGPRINT(RT_DEBUG_TRACE, ("MMCHK - No BEACON. Dead CQI. Auto Recovery attempt #%ld\n", pAd->RalinkCounters.BadCQIAutoRecoveryCount));
 
@@ -1263,7 +1321,11 @@ VOID STAMlmePeriodicExec(
 			/* RTMPPatchMacBbpBug(pAd);*/
 			MlmeAutoReconnectLastSSID(pAd);
 		}
-		else if (CQI_IS_BAD(pAd->Mlme.ChannelQuality))
+		else if (CQI_IS_BAD(pAd->Mlme.ChannelQuality)
+#ifdef CONFIG_MULTI_CHANNEL
+			&& (pWscControl->bWscTrigger == FALSE)
+#endif /*CONFIG_MULTI_CHANNEL*/
+		)
 		{
 			pAd->RalinkCounters.BadCQIAutoRecoveryCount ++;
 			DBGPRINT(RT_DEBUG_TRACE, ("MMCHK - Bad CQI. Auto Recovery attempt #%ld\n", pAd->RalinkCounters.BadCQIAutoRecoveryCount));
@@ -1774,7 +1836,11 @@ VOID MlmeCalculateChannelQuality(
 	ULONG ChannelQuality = 0;  /* 0..100, Channel Quality Indication for Roaming*/
 	ULONG	LastBeaconRxTime = 0;
 #ifdef CONFIG_STA_SUPPORT
+#ifdef CONFIG_MULTI_CHANNEL
+	ULONG BeaconLostTime = (16 * OS_HZ);
+#else
 	ULONG BeaconLostTime = pAd->StaCfg.BeaconLostTime;
+#endif /*CONFIG_MULTI_CHANNEL*/
 #endif /* CONFIG_STA_SUPPORT */
 
 #ifdef CONFIG_STA_SUPPORT
@@ -2686,8 +2752,11 @@ ULONG BssSsidTableSearch(
 		/* Some AP that support A/B/G mode that may used the same BSSID on 11A and 11B/G.*/
 		/* We should distinguish this case.*/
 		/*		*/
-		if ((((Tab->BssEntry[i].Channel <= 14) && (Channel <= 14)) ||
+		if (
+#ifndef CONFIG_MULTI_CHANNEL
+			(((Tab->BssEntry[i].Channel <= 14) && (Channel <= 14)) ||
 			 ((Tab->BssEntry[i].Channel > 14) && (Channel > 14))) &&
+#endif /*CONFIG_MULTI_CHANNEL*/			 
 			MAC_ADDR_EQUAL(Tab->BssEntry[i].Bssid, pBssid) &&
 			SSID_EQUAL(pSsid, SsidLen, Tab->BssEntry[i].Ssid, Tab->BssEntry[i].SsidLen)) 
 		{ 

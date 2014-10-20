@@ -39,6 +39,7 @@ INT RtmpChipOpsEepromHook(
 	int index;
 #endif
 #endif
+	ULONG                   FwMode = 0;
 
 #ifdef RTMP_FLASH_SUPPORT
 	pChipOps->eeinit = rtmp_nv_init;
@@ -77,6 +78,17 @@ INT RtmpChipOpsEepromHook(
 	}
 
 	pAd->bUseEfuse = ( (eFuseCtrl & 0x80000000) == 0x80000000) ? 1 : 0;	
+
+#ifdef RTMP_MAC_USB
+    RTUSBFirmwareOpmode(pAd, &FwMode);
+    if ((FwMode&0x00000003) == 2)
+    {
+        DBGPRINT(RT_DEBUG_ERROR, ("NICLoadFirmware: The NIC is AutoRun Mode\n"));
+        pAd->FWinAutoRunMode = TRUE;
+               pAd->bUseEfuse = TRUE;
+    }
+#endif /* RTMP_MAC_USB */
+
 	if(pAd->bUseEfuse)
 	{
 		pChipOps->eeinit = eFuse_init;

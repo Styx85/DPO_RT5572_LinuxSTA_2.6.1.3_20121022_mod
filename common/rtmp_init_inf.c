@@ -96,6 +96,9 @@ VOID RtmpDrvOpsInit(
 	pRtmpDrvNetOps->RtmpDrvUsbBulkOutDataPacketComplete = RTUSBBulkOutDataPacketComplete;
 	pRtmpDrvNetOps->RtmpDrvUsbBulkOutMLMEPacketComplete = RTUSBBulkOutMLMEPacketComplete;
 	pRtmpDrvNetOps->RtmpDrvUsbBulkOutNullFrameComplete = RTUSBBulkOutNullFrameComplete;
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+	pRtmpDrvNetOps->RtmpDrvUsbBulkOutHCCANullFrameComplete = RTUSBBulkOutHCCANullFrameComplete;
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 /*	pRtmpDrvNetOps->RtmpDrvUsbBulkOutRTSFrameComplete = RTUSBBulkOutRTSFrameComplete;*/
 	pRtmpDrvNetOps->RtmpDrvUsbBulkOutPsPollComplete = RTUSBBulkOutPsPollComplete;
 	pRtmpDrvNetOps->RtmpDrvUsbBulkRxComplete = RTUSBBulkRxComplete;
@@ -680,6 +683,11 @@ VOID RTMPDrvOpen(
 #ifdef CONFIG_STA_SUPPORT
 #endif /* CONFIG_STA_SUPPORT */
 
+
+#ifdef CONFIG_MULTI_CHANNEL
+	MultiChannelThreadInit(pAd);
+#endif /* CONFIG_MULTI_CHANNEL */
+
 }
 
 
@@ -846,6 +854,10 @@ VOID RTMPDrvClose(
 	/* release all timers */
 	RTMPusecDelay(2000);
 	RTMP_TimerListRelease(pAd);
+
+#ifdef CONFIG_MULTI_CHANNEL
+	MultiChannelThreadExit(pAd);
+#endif /* CONFIG_MULTI_CHANNEL */
 
 #ifdef RTMP_TIMER_TASK_SUPPORT
 	NdisFreeSpinLock(&pAd->TimerQLock);

@@ -473,7 +473,7 @@ int rt_ioctl_giwpriv(
 	ext[len-1] = 0x00;
 	GET_PAD_FROM_NET_DEV(pAd, dev);
 
-	if(rtstrcasecmp(ext,"START") == 0)
+	if(strcasecmp(ext,"START") == 0)
 	{
 		//Turn on Wi-Fi hardware
 		//OK if successful
@@ -481,24 +481,24 @@ int rt_ioctl_giwpriv(
 		kfree(ext);
 		return -1;
 	}
-	else if(rtstrcasecmp(ext,"STOP") == 0)
+	else if(strcasecmp(ext,"STOP") == 0)
 	{
 		printk("STOP Turn off  Wi-Fi hardware \n");
 		kfree(ext);
 		return -1;
 	}
-	else if(rtstrcasecmp(ext,"RSSI") == 0)
+	else if(strcasecmp(ext,"RSSI") == 0)
 	{
 		CHAR AvgRssi0;
 		RTMP_STA_IoctlHandle(pAd, NULL, CMD_RTPRIV_IOCTL_STA_SIOCSIWPRIVRSSI,
 								0, &AvgRssi0, 0, dev->priv_flags);
 		snprintf(ext, min(dwrq->length, (UINT16)(strlen(ext)+1)),"rssi %d", AvgRssi0);
 	}
-	else if(rtstrcasecmp(ext,"LINKSPEED") == 0)
+	else if(strcasecmp(ext,"LINKSPEED") == 0)
 	{
 		snprintf(ext, min(dwrq->length, (UINT16)(strlen(ext)+1)),"LINKSPEED %d", 150);
 	}
-	else if(rtstrcasecmp(ext,"MACADDR") == 0)
+	else if(strcasecmp(ext,"MACADDR") == 0)
 	{
 		UCHAR mac[6];
 		RTMP_STA_IoctlHandle(pAd, NULL, CMD_RTPRIV_IOCTL_STA_SIOCGIFHWADDR,
@@ -508,11 +508,11 @@ int rt_ioctl_giwpriv(
 			mac[0], mac[1], mac[2],
 			mac[3], mac[4], mac[5]);
 	}
-	else if(rtstrcasecmp(ext,"SCAN-ACTIVE") == 0)
+	else if(strcasecmp(ext,"SCAN-ACTIVE") == 0)
 	{
 		snprintf(ext, min(dwrq->length, (UINT16)(strlen(ext)+1)),"OK");
 	}
-	else if(rtstrcasecmp(ext,"SCAN-PASSIVE") == 0)
+	else if(strcasecmp(ext,"SCAN-PASSIVE") == 0)
 	{
 		snprintf(ext, min(dwrq->length, (UINT16)(strlen(ext)+1)),"OK");
 	}
@@ -1599,7 +1599,7 @@ int rt_ioctl_setparam(struct net_device *dev, struct iw_request_info *info,
 		return -ENETDOWN;
 	}
 
-	os_alloc_mem(NULL, &this_char, strlen(extra) + 1);
+	os_alloc_mem(NULL, (UCHAR **)&this_char, strlen(extra) + 1);
 	if (this_char == NULL)
 	{
 		return -ENOMEM;

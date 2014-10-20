@@ -1115,6 +1115,9 @@ VOID PeerPairMsg3Action(
 	{
 		pEntry->PortSecured = WPA_802_1X_PORT_SECURED;
 		pEntry->PrivacyFilter = Ndis802_11PrivFilterAcceptAll;	
+#ifdef CONFIG_MULTI_CHANNEL
+		MultiChannelTimerStart(pAd,pEntry);
+#endif /*CONFIG_MULTI_CHANNEL*/
 
 #ifdef CONFIG_STA_SUPPORT
 		STA_PORT_SECURED(pAd);
@@ -1193,6 +1196,10 @@ VOID PeerPairMsg4Action(
         pEntry->WpaState = AS_PTKINITDONE;
 		pEntry->PortSecured = WPA_802_1X_PORT_SECURED;
         
+#ifdef CONFIG_MULTI_CHANNEL
+		MultiChannelTimerStart(pAd,pEntry);
+#endif /*CONFIG_MULTI_CHANNEL*/
+
 
 		if (pEntry->AuthMode == Ndis802_11AuthModeWPA2 || 
 			pEntry->AuthMode == Ndis802_11AuthModeWPA2PSK)
@@ -1203,6 +1210,8 @@ VOID PeerPairMsg4Action(
 
 			/* send wireless event - for set key done WPA2*/
 				RTMPSendWirelessEvent(pAd, IW_SET_KEY_DONE_WPA2_EVENT_FLAG, pEntry->Addr, pEntry->apidx, 0); 
+
+
 
 	 
 	        DBGPRINT(RT_DEBUG_OFF, ("AP SETKEYS DONE - WPA2, AuthMode(%d)=%s, WepStatus(%d)=%s, GroupWepStatus(%d)=%s\n\n", 
@@ -1388,6 +1397,10 @@ VOID	PeerGroupMsg1Action(
     /* open 802.1x port control and privacy filter*/
 	pEntry->PortSecured = WPA_802_1X_PORT_SECURED;
 	pEntry->PrivacyFilter = Ndis802_11PrivFilterAcceptAll;
+
+#ifdef CONFIG_MULTI_CHANNEL
+	MultiChannelTimerStart(pAd,pEntry);
+#endif /*CONFIG_MULTI_CHANNEL*/	
 
 #ifdef CONFIG_STA_SUPPORT
 	STA_PORT_SECURED(pAd);

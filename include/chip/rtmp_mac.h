@@ -799,6 +799,7 @@ typedef union _PBF_SYS_CTRL_STRUC
 #define PBF_CTRL	 	0x0410
 #define PBF_INT_STA	 0x0414
 #define PBF_INT_ENA	 0x0418
+#define TXRXQ_STA		0x0434
 #define TXRXQ_PCNT  	 0x0438
 #define PBF_DBG 	 	 0x043c
 #define PBF_CAP_CTRL     0x0440
@@ -2467,6 +2468,9 @@ typedef	union	_MPDU_DEN_CNT_STRUC	{
 	UINT32			word;
 }	MPDU_DEN_CNT_STRUC, *PMPDU_DEN_CNT_STRUC;
 #endif
+
+#define TX_REPORT_CNT	0x1794
+
 /* */
 /* TXRX control registers - base address 0x3000 */
 /* */
@@ -3070,7 +3074,11 @@ typedef	union	_EEPROM_WORD_STRUC	{
 #define QID_AC_VI               2
 #define QID_AC_VO               3
 #define QID_HCCA                4
+#ifdef	CONFIG_MULTI_CHANNEL
 #define NUM_OF_TX_RING          5
+#else
+#define NUM_OF_TX_RING          4
+#endif
 #define QID_MGMT                13
 #define QID_RX                  14
 #define QID_OTHER               15

@@ -1205,10 +1205,14 @@ VOID NICInitRT5390BbpRegisters(
 		RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R31, 0x09); /* ADC/DAC contro */
 	else
 		RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R31, 0x08); /* ADC/DAC contro */
-
 	RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R68, 0x0B); /* Rx AGC energy lower bound in log2 */
-	
-	RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R70, 0x0A); /* Rx AGC SQ CCK Xcorr threshold */
+#ifdef RT_SOC_SUPPORT
+	RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R69, 0x0D); /* Request by Gary 2012/9/14 */
+	RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R70, 0x06); /* Rx AGC SQ CCK Xcorr threshold */
+#else
+	RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R69, 0x12);
+	RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R70, 0x0A);
+#endif
 	RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R73, 0x13); /* Rx AGC SQ ACorr threshold */
 	RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R75, 0x46); /* Rx high power VGA offset for LNA offset */
 	RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R76, 0x28); /* Rx medium power VGA offset for LNA offset */
@@ -1247,7 +1251,8 @@ VOID NICInitRT5390BbpRegisters(
 	if (IS_RT5392(pAd))
 	{
 		RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R134, 0xD0); /* TX CCK higher gain */
-		RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R135, 0xF6); /* TX CCK higher gain */ 
+		RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R135, 0xF6); /* TX CCK higher gain */
+		RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R148, 0x84); /* To enhance RX angle sensitivity */			
 	}
 
 
@@ -1436,13 +1441,6 @@ VOID RT5390_ChipBBPAdjust(
 #endif /* DOT11_N_SUPPORT */
 	}
  
-#ifdef RT_SOC_SUPPORT
-	RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R69, 0x0D);
-	RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R70, 0x06);
-#else
-	RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R69, 0x12);
-	RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R70, 0x0A);
-#endif /* RT_SOC_SUPPORT */
 
 	/* RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BBP_R73, 0x10); */
 	

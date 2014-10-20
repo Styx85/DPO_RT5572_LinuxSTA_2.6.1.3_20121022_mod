@@ -62,9 +62,11 @@
 #define JAP_W53	3
 #define JAP_W56	4
 #define MAX_RD_REGION 5
-
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+#define BEACON_LOST_TIME           12 * OS_HZ    /* 2048 msec = 2 sec */
+#else
 #define BEACON_LOST_TIME            4 * OS_HZ    /* 2048 msec = 2 sec */
-
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 #define DLS_TIMEOUT                 1200      /* unit: msec */
 #define AUTH_TIMEOUT                300       /* unit: msec */
 #define ASSOC_TIMEOUT               300       /* unit: msec */
@@ -1148,6 +1150,8 @@ typedef struct {
 
 	UCHAR   MacAddr[MAC_ADDR_LEN];
 	ULONG ClientStatusFlags;
+	SHORT	AvgRssiX8;
+	CHAR	AvgRssi;
 } BSS_ENTRY, *PBSS_ENTRY;
 
 typedef struct {

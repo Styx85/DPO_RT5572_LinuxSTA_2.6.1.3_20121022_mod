@@ -46,6 +46,9 @@ typedef struct _FREQUENCY_CALIBRATION_CONTROL
 #define RTMP_FREQ_CAL_DISABLE(__pAd)									\
 	__pAd->FreqCalibrationCtrl.bEnableFrequencyCalibration = FALSE;
 
+#define RTMP_FREQ_CAL_ENABLE(__pAd)									\
+	__pAd->FreqCalibrationCtrl.bEnableFrequencyCalibration = TRUE;
+
 /* */
 /* Invalid frequency offset */
 /* */

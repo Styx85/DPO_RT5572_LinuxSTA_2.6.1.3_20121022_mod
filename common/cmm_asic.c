@@ -34,6 +34,16 @@
 #define MDSM_ADD_TX_POWER_BY_6dBm						0x03
 #define MDSM_BBP_R1_STATIC_TX_POWER_CONTROL_MASK		0x03
 
+
+#define PWR_CONSIDER_NOTHING							0x00
+#define PWR_CONSIDER_PWR_PERCENTAGE					0x01
+#define PWR_CONSIDER_HIGH_PWR_ISSUE						0x02
+#define PWR_CONSIDER_HIGH_PWR_FOR_MULTI_STA			0x03
+
+#define SINGLE_OPN_AP_MODE(__pAd)				(IS_OPMODE_AP(__pAd))
+#define SINGLE_OPN_STA_MODE(__pAd)			(INFRA_ON(__pAd))
+
+
 #ifdef CONFIG_STA_SUPPORT
 VOID AsicUpdateAutoFallBackTable(
 	IN	PRTMP_ADAPTER	pAd,
@@ -1411,25 +1421,78 @@ VOID GetSingleSkuDeltaPower(
 }
 #endif /* SINGLE_SKU */
 
+CHAR AdjustPowerRuleDecide(
+	IN 		PRTMP_ADAPTER 		pAd)
+{
+	CHAR reVal;
+	
+	if (SINGLE_OPN_AP_MODE(pAd)^SINGLE_OPN_STA_MODE(pAd))
+	{
+		if (SINGLE_OPN_AP_MODE(pAd))
+			reVal = PWR_CONSIDER_PWR_PERCENTAGE; 
+		else
+			reVal = PWR_CONSIDER_HIGH_PWR_ISSUE; 
+	}
+	else 
+		reVal = PWR_CONSIDER_NOTHING;
+
+	DBGPRINT(RT_DEBUG_INFO, ("%s::Desided rule = %d\n", __FUNCTION__, reVal));
+
+	return reVal;
+}
+
+
 VOID AsicPercentageDeltaPower(
 	IN 		PRTMP_ADAPTER 		pAd,
 	IN		CHAR				Rssi,
 	INOUT	PCHAR				pDeltaPwr,
-	INOUT	PCHAR				pDeltaPowerByBbpR1) 
+	INOUT	PCHAR				pDeltaPowerByBbpR1,
+	IN		CHAR				DecidedRule) 
 {
-	/* 
-		Calculate delta power based on the percentage specified from UI.
-		E2PROM setting is calibrated for maximum TX power (i.e. 100%).
-		We lower TX power here according to the percentage specified from UI.
-	*/
-	
-	if (pAd->CommonCfg.TxPowerPercentage >= 100) /* AUTO TX POWER control */
-	{
-#ifdef CONFIG_STA_SUPPORT
-		if ((pAd->OpMode == OPMODE_STA)
-		)
+	switch(DecidedRule)
+	{		
+		case PWR_CONSIDER_PWR_PERCENTAGE:
 		{
-			/* To patch high power issue with some APs, like Belkin N1.*/
+			/* 
+				Calculate delta power based on the percentage specified from UI.
+				E2PROM setting is calibrated for maximum TX power (i.e. 100%).
+				We lower TX power here according to the percentage specified from UI.
+			*/
+	
+			if (pAd->CommonCfg.TxPowerPercentage >= 100) /* AUTO TX POWER control */
+			{
+			}
+			else if (pAd->CommonCfg.TxPowerPercentage > 90) /* 91 ~ 100% & AUTO, treat as 100% in terms of mW */
+			{
+			}
+			else if (pAd->CommonCfg.TxPowerPercentage > 60) /* 61 ~ 90%, treat as 75% in terms of mW */
+			{
+				*pDeltaPwr -= 1;
+			}
+			else if (pAd->CommonCfg.TxPowerPercentage > 30) /* 31 ~ 60%, treat as 50% in terms of mW */
+			{
+				*pDeltaPwr -= 3;
+			}
+			else if (pAd->CommonCfg.TxPowerPercentage > 15) /* 16 ~ 30%, treat as 25% in terms of mW */
+			{
+				*pDeltaPowerByBbpR1 -= 6; 
+			}
+			else if (pAd->CommonCfg.TxPowerPercentage > 9) /* 10 ~ 15%, treat as 12.5% in terms of mW */
+			{
+				*pDeltaPowerByBbpR1 -= 6;
+				*pDeltaPwr -= 3;
+			}
+			else /* 0 ~ 9 %, treat as MIN(~3%) in terms of mW	 */
+			{
+				*pDeltaPowerByBbpR1 -= 12;
+			}
+	
+			break;
+		}
+
+		case PWR_CONSIDER_HIGH_PWR_ISSUE:
+		{
+			
 			if (Rssi > -35)
 			{
 				*pDeltaPwr -= 12;
@@ -1438,35 +1501,17 @@ VOID AsicPercentageDeltaPower(
 			{
 				*pDeltaPwr -= 6;
 			}
-			else
-				;
+	
+			break;
 		}
-#endif /* CONFIG_STA_SUPPORT */
-	}
-	else if (pAd->CommonCfg.TxPowerPercentage > 90) /* 91 ~ 100% & AUTO, treat as 100% in terms of mW */
-		;
-	else if (pAd->CommonCfg.TxPowerPercentage > 60) /* 61 ~ 90%, treat as 75% in terms of mW		 DeltaPwr -= 1; */
-	{
-		*pDeltaPwr -= 1;
-	}
-	else if (pAd->CommonCfg.TxPowerPercentage > 30) /* 31 ~ 60%, treat as 50% in terms of mW		 DeltaPwr -= 3; */
-	{
-		*pDeltaPwr -= 3;
-	}
-	else if (pAd->CommonCfg.TxPowerPercentage > 15) /* 16 ~ 30%, treat as 25% in terms of mW		 DeltaPwr -= 6; */
-	{
-		*pDeltaPowerByBbpR1 -= 6; /* -6 dBm */
-	}
-	else if (pAd->CommonCfg.TxPowerPercentage > 9) /* 10 ~ 15%, treat as 12.5% in terms of mW		 DeltaPwr -= 9; */
-	{
-		*pDeltaPowerByBbpR1 -= 6; /* -6 dBm */
-		*pDeltaPwr -= 3;
-	}
-	else /* 0 ~ 9 %, treat as MIN(~3%) in terms of mW		 DeltaPwr -= 12; */
-	{
-		*pDeltaPowerByBbpR1 -= 12; /* -12 dBm */
+
+
+		case PWR_CONSIDER_NOTHING:
+		default:
+			return;
 	}
 }
+
 
 VOID AsicCompensatePowerViaBBP(
 	IN 		PRTMP_ADAPTER 		pAd,
@@ -1532,6 +1577,7 @@ VOID AsicAdjustTxPower(
 	CHAR 		Value;
 	CHAR		Rssi = -127;
 	CHAR		DeltaPwr = 0;
+	CHAR		DecidedRule = 0;
 	CHAR		TxAgcCompensate = 0;
 	CHAR		DeltaPowerByBbpR1 = 0; 
 	CHAR		TotalDeltaPower = 0; /* (non-positive number) including the transmit power controlled by the MAC and the BBP R1 */
@@ -1576,8 +1622,11 @@ VOID AsicAdjustTxPower(
 			TxAgcCompensate,
 			DeltaPowerByBbpR1));
 		
-	/* Get delta power based on the percentage specified from UI */
-	AsicPercentageDeltaPower(pAd, Rssi, &DeltaPwr,&DeltaPowerByBbpR1);
+	/* Consider the combination of concurrent and single operation mode, including AP(P2P-GO) and STA(P2P-Client) */
+	DecidedRule = AdjustPowerRuleDecide(pAd);
+		
+	/* Get delta power based on the percentage specified from UI and the high power issue */
+	AsicPercentageDeltaPower(pAd, Rssi, &DeltaPwr,&DeltaPowerByBbpR1, DecidedRule);
 
 
 	/* The transmit power controlled by the BBP */

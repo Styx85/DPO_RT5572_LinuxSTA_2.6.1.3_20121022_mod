@@ -57,7 +57,7 @@ typedef VOID	pregs;
 
 #ifdef RTMP_MAC_USB
 #define STA_PROFILE_PATH			"/etc/Wireless/RT2870STA/RT2870STA.dat"
-#define STA_DRIVER_VERSION			"2.6.1.1_rev1_1"
+#define STA_DRIVER_VERSION			"2.6.1.3_rev1"
 #ifdef MULTIPLE_CARD_SUPPORT
 #define CARD_INFO_PATH			"/etc/Wireless/RT2870STA/RT2870STACard.dat"
 #endif /* MULTIPLE_CARD_SUPPORT */
@@ -310,6 +310,9 @@ struct os_cookie {
 
 #ifdef RTMP_MAC_USB
 	RTMP_NET_TASK_STRUCT	null_frame_complete_task;
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+	RTMP_NET_TASK_STRUCT	hcca_null_frame_complete_task;
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */	
 /*	RTMP_NET_TASK_STRUCT	rts_frame_complete_task; */
 	RTMP_NET_TASK_STRUCT	pspoll_frame_complete_task;
 #endif /* RTMP_MAC_USB */
@@ -768,8 +771,8 @@ extern ULONG RtmpOsGetUnalignedlong(
 			
 #define RTMP_GET_PACKET_IPV4(_p)		(PACKET_CB(_p, 11) & RTMP_PACKET_SPECIFIC_IPV4)
 
-/* TDLS */
 /* IP */
+/* TDLS */
 #define RTMP_SET_PACKET_TDLS(_p, _flg)									\
 			do{															\
 				if (_flg)												\
@@ -785,7 +788,12 @@ extern ULONG RtmpOsGetUnalignedlong(
 #define RTMP_GET_PACKET_CLEAR_EAP_FRAME(_p)         (PACKET_CB(_p, 12))
 
 
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+#define MAX_PACKETS_IN_QUEUE				(2048)
+#else /* CONFIG_MULTI_CHANNEL */
 #define MAX_PACKETS_IN_QUEUE				(512)
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
+
 
 
 /* use bit3 of cb[CB_OFF+16] */
@@ -812,6 +820,37 @@ extern ULONG RtmpOsGetUnalignedlong(
 	((((UINT16)PACKET_CB(_p, 23)) << 8) \
 	| ((UINT16)PACKET_CB(_p, 24)))
 
+/*
+ *	TDLS Sepcific Pakcet Type definition
+*/
+#define RTMP_TDLS_SPECIFIC_WAIT_ACK		0x01
+#define RTMP_TDLS_SPECIFIC_NOACK			0x02
+#define RTMP_TDLS_SPECIFIC_PKTQ_HCCA		0x04
+#define RTMP_TDLS_SPECIFIC_PKTQ_EDCA		0x08
+
+#define RTMP_SET_PACKET_TDLS_WAIT_ACK(_p, _flg)							\
+			do{															\
+				if (_flg)													\
+					PACKET_CB(_p, 25) |= (RTMP_TDLS_SPECIFIC_WAIT_ACK);		\
+				else														\
+					PACKET_CB(_p, 25) &= (~RTMP_TDLS_SPECIFIC_WAIT_ACK);	\
+			}while(0)
+			
+#define RTMP_GET_PACKET_TDLS_WAIT_ACK(_p)		(PACKET_CB(_p, 25) & RTMP_TDLS_SPECIFIC_WAIT_ACK)
+
+#define RTMP_SET_PACKET_TDLS_NO_ACK(_p, _flg)						\
+			do{														\
+				if (_flg)												\
+					PACKET_CB(_p, 25) |= (RTMP_TDLS_SPECIFIC_NOACK);	\
+				else													\
+					PACKET_CB(_p, 25) &= (~RTMP_TDLS_SPECIFIC_NOACK);	\
+			}while(0)
+			
+#define RTMP_GET_PACKET_TDLS_NO_ACK(_p)		(PACKET_CB(_p, 25) & RTMP_TDLS_SPECIFIC_NOACK)
+
+#define RTMP_SET_TDLS_SPECIFIC_PACKET(_p, _flg)   (PACKET_CB(_p, 25) = _flg)
+#define RTMP_GET_TDLS_SPECIFIC_PACKET(_p)         (PACKET_CB(_p, 25))
+
 #ifdef INF_AMAZON_SE
 /* [CB_OFF+28], 1B, Iverson patch for WMM A5-T07 ,WirelessStaToWirelessSta do not bulk out aggregate */
 #define RTMP_SET_PACKET_NOBULKOUT(_p, _morebit)			(PACKET_CB(_p, 28) = _morebit)
@@ -826,6 +865,12 @@ extern ULONG RtmpOsGetUnalignedlong(
 #define RTMP_SET_TCP_CHKSUM_FAIL(_p, _flg) 	(PACKET_CB(_p, 30) = _flg);
 #define RTMP_GET_TCP_CHKSUM_FAIL(_p)		(PACKET_CB(_p, 30))
 #endif /* CONFIG_TSO_SUPPORT */
+
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+#define RTMP_FRAME_WAIT_HW_ACK		0x04
+#define RTMP_SET_WAIT_SPECIFIC_PACKET(_p, _flg)   (PACKET_CB(_p, 31) = _flg)
+#define RTMP_GET_WAIT_SPECIFIC_PACKET(_p)         (PACKET_CB(_p, 31))
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 
 
 
@@ -893,6 +938,9 @@ typedef VOID (*usb_complete_t)(VOID *);
 #define RtmpUsbBulkOutDataPacketComplete		pRtmpDrvNetOps->RtmpNetUsbBulkOutDataPacketComplete
 #define RtmpUsbBulkOutMLMEPacketComplete		pRtmpDrvNetOps->RtmpNetUsbBulkOutMLMEPacketComplete
 #define RtmpUsbBulkOutNullFrameComplete			pRtmpDrvNetOps->RtmpNetUsbBulkOutNullFrameComplete
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+#define RtmpUsbBulkOutHCCANullFrameComplete			pRtmpDrvNetOps->RtmpNetUsbBulkOutHCCANullFrameComplete
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 #define RtmpUsbBulkOutRTSFrameComplete			pRtmpDrvNetOps->RtmpNetUsbBulkOutRTSFrameComplete
 #define RtmpUsbBulkOutPsPollComplete			pRtmpDrvNetOps->RtmpNetUsbBulkOutPsPollComplete
 #define RtmpUsbBulkRxComplete					pRtmpDrvNetOps->RtmpNetUsbBulkRxComplete
@@ -907,6 +955,9 @@ typedef VOID (*usb_complete_t)(VOID *);
 USBHST_STATUS RTUSBBulkOutDataPacketComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs);
 USBHST_STATUS RTUSBBulkOutMLMEPacketComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs);
 USBHST_STATUS RTUSBBulkOutNullFrameComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs);
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+USBHST_STATUS RTUSBBulkOutHCCANullFrameComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs);
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 USBHST_STATUS RTUSBBulkOutRTSFrameComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs);
 USBHST_STATUS RTUSBBulkOutPsPollComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs);
 USBHST_STATUS RTUSBBulkRxComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs);

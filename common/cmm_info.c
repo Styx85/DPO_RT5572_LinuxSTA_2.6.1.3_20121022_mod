@@ -224,12 +224,26 @@ INT	Show_STA_RAInfo_Proc(
 	IN	ULONG			BufLen);
 
 
+
+
 #ifdef SINGLE_SKU
 INT	Show_ModuleTxpower_Proc(
 	IN	PRTMP_ADAPTER	pAd,
 	OUT	PSTRING			pBuf,
 	IN	ULONG			BufLen);
 #endif /* SINGLE_SKU */
+
+#ifdef CONFIG_MULTI_CHANNEL
+INT	Show_StaStayTime_Proc(
+	IN	PRTMP_ADAPTER	pAd,
+	OUT	PSTRING			pBuf,
+	IN	ULONG			BufLen);
+
+INT	Show_P2pStayTime_Proc(
+	IN	PRTMP_ADAPTER	pAd,
+	OUT	PSTRING			pBuf,
+	IN	ULONG			BufLen);
+#endif /* CONFIG_MULTI_CHANNEL */
 
 extern INT	Set_AP_WscConfStatus_Proc(
 	IN	PRTMP_ADAPTER	pAd, 
@@ -306,6 +320,10 @@ static struct {
 #endif /* SINGLE_SKU */
 #endif /* DBG */
 	{"rainfo",					Show_STA_RAInfo_Proc},
+#ifdef CONFIG_MULTI_CHANNEL
+	{"StaStayTime",				Show_StaStayTime_Proc},
+	{"P2pStayTime",				Show_P2pStayTime_Proc},
+#endif /* CONFIG_MULTI_CHANNEL */
 	{NULL, NULL}
 };
 
@@ -2428,6 +2446,12 @@ INT	SetCommonHT(
 		RTMPDisableDesiredHtInfo(pAd);
 		return FALSE;
 	}
+	
+	/* for prevent command sequence incorrect, 
+	   cause Extension Chanel or other HT settings inconsistence. 
+	   do error handle check here.
+	*/
+	N_ChannelCheck(pAd);
 	
 	SetHT.PhyMode = (RT_802_11_PHY_MODE)pAd->CommonCfg.PhyMode;
 	SetHT.TransmitNo = ((UCHAR)pAd->Antenna.field.TxPath);
@@ -5088,6 +5112,27 @@ INT	Show_ModuleTxpower_Proc(
 	return 0;
 }
 #endif /* SINGLE_SKU */
+
+#ifdef CONFIG_MULTI_CHANNEL
+INT	Show_StaStayTime_Proc(
+	IN	PRTMP_ADAPTER	pAd,
+	OUT	PSTRING			pBuf,
+	IN	ULONG			BufLen)
+{
+	snprintf(pBuf, BufLen, "\tEDCAToHCCATimerValue = %d", pAd->Mlme.EDCAToHCCATimerValue);
+	return 0;
+}
+
+INT	Show_P2pStayTime_Proc(
+	IN	PRTMP_ADAPTER	pAd,
+	OUT	PSTRING			pBuf,
+	IN	ULONG			BufLen)
+{
+	snprintf(pBuf, BufLen, "\tHCCAToEDCATimerValue = %d", pAd->Mlme.HCCAToEDCATimerValue);
+	return 0;
+}
+#endif /* CONFIG_MULTI_CHANNEL */
+
 
 #ifdef APCLI_SUPPORT
  INT RTMPIoctlConnStatus(

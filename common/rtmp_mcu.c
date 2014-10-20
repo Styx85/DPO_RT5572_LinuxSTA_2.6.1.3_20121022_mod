@@ -498,7 +498,8 @@ NDIS_STATUS RtmpAsicLoadFirmware(
 
 #ifdef RTMP_MAC_USB
 	/* firmware is never loaded or the loadable firmware is different with the firmware in the RAM */
-	if (isMCUNeedToLoadFIrmware(pAd) || Equal == FALSE )
+       if (((isMCUNeedToLoadFIrmware(pAd) || Equal == FALSE )) &&
+        (!pAd->FWinAutoRunMode))
 	{
 		DBGPRINT(RT_DEBUG_ERROR, ("NICLoadFirmware: We need to load firmware\n"));	
 		RTMP_WRITE_FIRMWARE(pAd, pFirmwareImage, FileLength); /* FirmwareRun VndReq 0x1/0x8 --> initDone = 1 */

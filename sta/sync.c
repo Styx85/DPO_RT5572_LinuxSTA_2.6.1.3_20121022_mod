@@ -537,7 +537,11 @@ VOID MlmeScanReqAction(
 		    Send an NULL data with turned PSM bit on to current associated AP before SCAN progress.
 		    And should send an NULL data with turned PSM bit off to AP, when scan progress done 
 		*/
-		if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED) && (INFRA_ON(pAd)))
+		if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED) && (INFRA_ON(pAd))
+#ifdef CONFIG_MULTI_CHANNEL
+								&& (pAd->CommonCfg.Channel == pAd->LatchRfRegs.Channel)
+#endif /*CONFIG_MULTI_CHANNEL*/
+		)
 		{
 			RTMPSendNullFrame(pAd, 
 							  pAd->CommonCfg.TxRate, 
@@ -562,6 +566,13 @@ VOID MlmeScanReqAction(
 		pAd->MlmeAux.SsidLen = SsidLen;
         NdisZeroMemory(pAd->MlmeAux.Ssid, MAX_LEN_OF_SSID);
 		NdisMoveMemory(pAd->MlmeAux.Ssid, Ssid, SsidLen);
+#ifdef CONFIG_MULTI_CHANNEL
+		if (P2P_CLI_ON(pAd))
+		{
+			pAd->StaCfg.bImprovedScan = TRUE;
+			pAd->StaCfg.ScanChannelCnt = 0;	/* reset channel counter to 0 */
+		}
+#endif /*CONFIG_MULTI_CHANNEL*/
 
 
 		/*
@@ -1649,6 +1660,7 @@ VOID PeerBeacon(
 
 
 
+
 	if (!(INFRA_ON(pAd) || ADHOC_ON(pAd)
 		))
 		return;
@@ -1871,7 +1883,6 @@ VOID PeerBeacon(
 			pAd->StaCfg.DtimCount = DtimCount;
 			pAd->StaCfg.DtimPeriod = DtimPeriod;
 			pAd->StaCfg.LastBeaconRxTime = Now;
-
 
 			NdisZeroMemory(&RxWI, RXWISize);
 			RxWI.RSSI0 = Elem->Rssi0;
@@ -2356,6 +2367,7 @@ VOID PeerBeacon(
 					}
 				}
 			}
+
 		}
 		/* not my BSSID, ignore it */
 	}
@@ -2555,7 +2567,6 @@ VOID ScanTimeoutAction(
 						  (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_WMM_INUSED) ? TRUE:FALSE),
 						  PWR_SAVE);
 
-
 	}
 #endif /* RTMP_MAC_USB */
 
@@ -2566,7 +2577,10 @@ VOID ScanTimeoutAction(
 	}
 	else
 	{
-		pAd->MlmeAux.Channel = NextChannel(pAd, pAd->MlmeAux.Channel);
+		BOOLEAN skip = FALSE;
+		
+		if (!skip)
+			pAd->MlmeAux.Channel = NextChannel(pAd, pAd->MlmeAux.Channel);
 	}
 
 	/* Only one channel scanned for CISCO beacon request */

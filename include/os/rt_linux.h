@@ -128,7 +128,7 @@ typedef struct usb_ctrlrequest devctrlrequest;
 
 #ifdef RTMP_MAC_USB
 #define STA_PROFILE_PATH			"/etc/Wireless/RT2870STA/RT2870STA.dat"
-#define STA_DRIVER_VERSION			"2.6.1.1_rev1_1"
+#define STA_DRIVER_VERSION			"2.6.1.3_rev1"
 #ifdef MULTIPLE_CARD_SUPPORT
 #define CARD_INFO_PATH			"/etc/Wireless/RT2870STA/RT2870STACard.dat"
 #endif /* MULTIPLE_CARD_SUPPORT */
@@ -628,6 +628,9 @@ struct os_cookie {
 
 #ifdef RTMP_MAC_USB
 	RTMP_NET_TASK_STRUCT null_frame_complete_task;
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+	RTMP_NET_TASK_STRUCT	hcca_null_frame_complete_task;
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */	
 /*	RTMP_NET_TASK_STRUCT rts_frame_complete_task; */
 	RTMP_NET_TASK_STRUCT pspoll_frame_complete_task;
 #endif /* RTMP_MAC_USB */
@@ -1107,7 +1110,11 @@ void linux_pci_unmap_single(void *handle, ra_dma_addr_t dma_addr, size_t size, i
 #define RTMP_GET_PACKET_CLEAR_EAP_FRAME(_p)         (RTPKT_TO_OSPKT(_p)->cb[CB_OFF+12])
 
 
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+#define MAX_PACKETS_IN_QUEUE				(2048)
+#else /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 #define MAX_PACKETS_IN_QUEUE				(512)
+#endif /* !CONFIG_MULTI_CHANNEL */
 
 
 /* use bit3 of cb[CB_OFF+16] */
@@ -1134,6 +1141,37 @@ void linux_pci_unmap_single(void *handle, ra_dma_addr_t dma_addr, size_t size, i
 	((((UINT16)(RTPKT_TO_OSPKT(_p)->cb[CB_OFF+24]) & 0x00ff) << 8) \
 	| ((UINT16)(RTPKT_TO_OSPKT(_p)->cb[CB_OFF+23]) & 0x00ff))
 
+/*
+ *	TDLS Sepcific Pakcet Type definition
+*/
+#define RTMP_TDLS_SPECIFIC_WAIT_ACK			0x01
+#define RTMP_TDLS_SPECIFIC_NOACK			0x02
+#define RTMP_TDLS_SPECIFIC_PKTQ_HCCA		0x04
+#define RTMP_TDLS_SPECIFIC_PKTQ_EDCA		0x08
+
+#define RTMP_SET_PACKET_TDLS_WAIT_ACK(_p, _flg)											\
+			do{																			\
+				if (_flg)																	\
+					(RTPKT_TO_OSPKT(_p)->cb[CB_OFF+25]) |= (RTMP_TDLS_SPECIFIC_WAIT_ACK);	\
+				else																		\
+					(RTPKT_TO_OSPKT(_p)->cb[CB_OFF+25]) &= (~RTMP_TDLS_SPECIFIC_WAIT_ACK);	\
+			}while(0)
+			
+#define RTMP_GET_PACKET_TDLS_WAIT_ACK(_p)		(RTPKT_TO_OSPKT(_p)->cb[CB_OFF+25] & RTMP_TDLS_SPECIFIC_WAIT_ACK)
+
+#define RTMP_SET_PACKET_TDLS_NO_ACK(_p, _flg)											\
+			do{																			\
+				if (_flg)																	\
+					(RTPKT_TO_OSPKT(_p)->cb[CB_OFF+25]) |= (RTMP_TDLS_SPECIFIC_NOACK);	\
+				else																		\
+					(RTPKT_TO_OSPKT(_p)->cb[CB_OFF+25]) &= (~RTMP_TDLS_SPECIFIC_NOACK);	\
+			}while(0)
+			
+#define RTMP_GET_PACKET_TDLS_NO_ACK(_p)		(RTPKT_TO_OSPKT(_p)->cb[CB_OFF+25] & RTMP_TDLS_SPECIFIC_NOACK)
+
+#define RTMP_SET_TDLS_SPECIFIC_PACKET(_p, _flg)   (RTPKT_TO_OSPKT(_p)->cb[CB_OFF+25] = _flg)
+#define RTMP_GET_TDLS_SPECIFIC_PACKET(_p)         (RTPKT_TO_OSPKT(_p)->cb[CB_OFF+25])
+
 #ifdef INF_AMAZON_SE
 /* [CB_OFF+28], 1B, Iverson patch for WMM A5-T07 ,WirelessStaToWirelessSta do not bulk out aggregate */
 #define RTMP_SET_PACKET_NOBULKOUT(_p, _morebit)			(RTPKT_TO_OSPKT(_p)->cb[CB_OFF+28] = _morebit)
@@ -1141,6 +1179,12 @@ void linux_pci_unmap_single(void *handle, ra_dma_addr_t dma_addr, size_t size, i
 #endif /* INF_AMAZON_SE */
 
 
+
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+#define RTMP_FRAME_WAIT_HW_ACK		0x04
+#define RTMP_SET_WAIT_SPECIFIC_PACKET(_p, _flg)   (RTPKT_TO_OSPKT(_p)->cb[CB_OFF+31] = _flg)
+#define RTMP_GET_WAIT_SPECIFIC_PACKET(_p)         (RTPKT_TO_OSPKT(_p)->cb[CB_OFF+31])
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 
 #ifdef CONFIG_TSO_SUPPORT
 #define RTMP_SET_TCP_CHKSUM_FAIL(_p, _flg) (RTPKT_TO_OSPKT(_p)->cb[CB_OFF+30] = _flg);
@@ -1271,6 +1315,9 @@ typedef struct usb_device_id USB_DEVICE_ID;
 #define RtmpUsbBulkOutDataPacketComplete		RTUSBBulkOutDataPacketComplete
 #define RtmpUsbBulkOutMLMEPacketComplete		RTUSBBulkOutMLMEPacketComplete
 #define RtmpUsbBulkOutNullFrameComplete			RTUSBBulkOutNullFrameComplete
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+#define RtmpUsbBulkOutHCCANullFrameComplete			RTUSBBulkOutHCCANullFrameComplete
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 #define RtmpUsbBulkOutRTSFrameComplete			RTUSBBulkOutRTSFrameComplete
 #define RtmpUsbBulkOutPsPollComplete			RTUSBBulkOutPsPollComplete
 #define RtmpUsbBulkRxComplete					RTUSBBulkRxComplete
@@ -1279,6 +1326,9 @@ typedef struct usb_device_id USB_DEVICE_ID;
 #define RTUSBBulkOutDataPacketComplete(Status, pURB, pt_regs)    RTUSBBulkOutDataPacketComplete(pURB)
 #define RTUSBBulkOutMLMEPacketComplete(Status, pURB, pt_regs)    RTUSBBulkOutMLMEPacketComplete(pURB)
 #define RTUSBBulkOutNullFrameComplete(Status, pURB, pt_regs)     RTUSBBulkOutNullFrameComplete(pURB)
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+#define RTUSBBulkOutHCCANullFrameComplete(Status, pURB, pt_regs)     RTUSBBulkOutHCCANullFrameComplete(pURB)
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 #define RTUSBBulkOutRTSFrameComplete(Status, pURB, pt_regs)      RTUSBBulkOutRTSFrameComplete(pURB)
 #define RTUSBBulkOutPsPollComplete(Status, pURB, pt_regs)        RTUSBBulkOutPsPollComplete(pURB)
 #define RTUSBBulkRxComplete(Status, pURB, pt_regs)               RTUSBBulkRxComplete(pURB)
@@ -1286,6 +1336,9 @@ typedef struct usb_device_id USB_DEVICE_ID;
 #define RTUSBBulkOutDataPacketComplete(Status, pURB, pt_regs)    RTUSBBulkOutDataPacketComplete(pURB, pt_regs)
 #define RTUSBBulkOutMLMEPacketComplete(Status, pURB, pt_regs)    RTUSBBulkOutMLMEPacketComplete(pURB, pt_regs)
 #define RTUSBBulkOutNullFrameComplete(Status, pURB, pt_regs)     RTUSBBulkOutNullFrameComplete(pURB, pt_regs)
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+#define RTUSBBulkOutHCCANullFrameComplete(Status, pURB, pt_regs)     RTUSBBulkOutHCCANullFrameComplete(pURB, pt_regs)
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 #define RTUSBBulkOutRTSFrameComplete(Status, pURB, pt_regs)      RTUSBBulkOutRTSFrameComplete(pURB, pt_regs)
 #define RTUSBBulkOutPsPollComplete(Status, pURB, pt_regs)        RTUSBBulkOutPsPollComplete(pURB, pt_regs)
 #define RTUSBBulkRxComplete(Status, pURB, pt_regs)               RTUSBBulkRxComplete(pURB, pt_regs)
@@ -1306,6 +1359,9 @@ typedef struct pt_regs pregs;
 USBHST_STATUS RTUSBBulkOutDataPacketComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs);
 USBHST_STATUS RTUSBBulkOutMLMEPacketComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs);
 USBHST_STATUS RTUSBBulkOutNullFrameComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs);
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+USBHST_STATUS RTUSBBulkOutHCCANullFrameComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs);
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 USBHST_STATUS RTUSBBulkOutRTSFrameComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs);
 USBHST_STATUS RTUSBBulkOutPsPollComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs);
 USBHST_STATUS RTUSBBulkRxComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs);

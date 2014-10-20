@@ -500,6 +500,51 @@ INT RtmpIoctl_rt_ioctl_giwname(
 	return NDIS_STATUS_SUCCESS;
 }
 
+#ifdef CONFIG_HAS_EARLYSUSPEND
+static void rt2870_early_suspend(struct early_suspend *early)
+{
+        DBGPRINT(RT_DEBUG_ERROR, ("%s\n", __func__));
+}
+
+static void rt2870_late_resume(struct early_suspend *early)
+{
+        PRTMP_ADAPTER   pAd = container_of(early, RTMP_ADAPTER, early_suspend);
+        DBGPRINT(RT_DEBUG_ERROR, ("%s\n", __func__));
+
+	printk("pAd->late_resume_flag = %d, VIRTUAL_IF_NUM(pAd) = %d\n", pAd->late_resume_flag, VIRTUAL_IF_NUM(pAd));
+	if ((pAd->late_resume_flag == TRUE) && (VIRTUAL_IF_NUM(pAd) == 0)) {
+		if (VIRTUAL_IF_UP((VOID *)pAd) != 0)
+                {
+			DBGPRINT(RT_DEBUG_ERROR, ("%s, VIRTUAL_IF_UP != 0\n", __func__));
+                }
+		else
+			pAd->late_resume_flag = FALSE;
+	}
+}
+
+void RTRegisterEarlySuspend(PRTMP_ADAPTER    pAd)
+{
+        DBGPRINT(RT_DEBUG_ERROR, ("%s\n", __func__));
+	pAd->late_resume_flag = TRUE;
+	pAd->early_suspend.suspend = NULL;
+        pAd->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN;
+        pAd->early_suspend.suspend = rt2870_early_suspend;
+        pAd->early_suspend.resume = rt2870_late_resume;
+        register_early_suspend(&pAd->early_suspend);
+}
+
+void RTUnregisterEarlySuspend(PRTMP_ADAPTER  pAd)
+{
+        DBGPRINT(RT_DEBUG_ERROR, ("%s\n", __func__));
+        pAd->late_resume_flag = FALSE;
+
+        if (pAd->early_suspend.suspend)
+                unregister_early_suspend(&pAd->early_suspend);
+
+        pAd->early_suspend.suspend = NULL;
+        pAd->early_suspend.resume = NULL;
+}
+#endif
 
 INT RTMP_COM_IoctlHandle(
 	IN	VOID					*pAdSrc,
@@ -840,11 +885,12 @@ INT RTMP_COM_IoctlHandle(
 					DBGPRINT(RT_DEBUG_TRACE, ("rt28xx_open return fail!\n"));
 					return NDIS_STATUS_FAILURE;
 				}
+				else
+					VIRTUAL_IF_INC(pAd);
 			}
 			else
 			{
 			}
-			VIRTUAL_IF_INC(pAd);
 		}
 			break;
 
@@ -853,9 +899,10 @@ INT RTMP_COM_IoctlHandle(
 		{
 			RT_CMD_INF_UP_DOWN *pInfConf = (RT_CMD_INF_UP_DOWN *)pData;
 
-			VIRTUAL_IF_DEC(pAd);
-			if (VIRTUAL_IF_NUM(pAd) == 0)
+			if (VIRTUAL_IF_NUM(pAd) > 0) {
 				pInfConf->rt28xx_close(pAd->net_dev);
+				VIRTUAL_IF_DEC(pAd);
+			}
 		}
 			break;
 
@@ -1002,6 +1049,18 @@ INT RTMP_COM_IoctlHandle(
 		case CMD_RTPRIV_IOCTL_SIOCGIWNAME:
 			RtmpIoctl_rt_ioctl_giwname(pAd, pData, 0);
 			break;
+
+#ifdef CONFIG_HAS_EARLYSUSPEND
+		case CMD_RTPRIV_IOCTL_REGISTER_EARLYSUSPEND:
+			RTRegisterEarlySuspend(pAd);
+			break;
+		case CMD_RTPRIV_IOCTL_UNREGISTER_EARLYSUSPEND:
+			RTUnregisterEarlySuspend(pAd);
+			break;
+		case CMD_RTPRIV_IOCTL_CHECK_EARLYSUSPEND:
+			*(UCHAR *)pData = (UCHAR)pAd->late_resume_flag;
+			break;
+#endif
 
 #ifdef CONFIG_TSO_SUPPORT
 		case CMD_RTPRIV_IOCTL_ADAPTER_TSO_SUPPORT_TEST:

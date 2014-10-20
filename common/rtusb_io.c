@@ -1162,7 +1162,11 @@ static NTSTATUS ResetBulkOutHdlr(IN PRTMP_ADAPTER pAd, IN PCmdQElmt CMDQelmt)
 													pHTTXContext->BulkOutSize,
 													RtmpUsbBulkOutDataPacketComplete);
 
+#ifdef USB_BULK_BUF_ALIGMENT
+				if ((ret = RTUSB_SUBMIT_URB(pHTTXContext->pUrb[pHTTXContext->CurtBulkIdx]))!=0)
+#else
 				if ((ret = RTUSB_SUBMIT_URB(pHTTXContext->pUrb))!=0)
+#endif /* USB_BULK_BUF_ALIGMENT */
 				{
 						RTMP_INT_LOCK(&pAd->BulkOutLock[pAd->bulkResetPipeid], IrqFlags);
 						pAd->BulkOutPending[pAd->bulkResetPipeid] = FALSE;
@@ -1187,7 +1191,11 @@ static NTSTATUS ResetBulkOutHdlr(IN PRTMP_ADAPTER pAd, IN PCmdQElmt CMDQelmt)
 
 						DBGPRINT(RT_DEBUG_TRACE, ("\tCMDTHREAD_RESET_BULK_OUT: Submit Tx DATA URB for failed BulkReq(0x%lx) Done, status=%d!\n",
 											pAd->bulkResetReq[pAd->bulkResetPipeid],
+#ifdef USB_BULK_BUF_ALIGMENT
+											RTMP_USB_URB_STATUS_GET(pHTTXContext->pUrb[pHTTXContext->CurtBulkIdx])));
+#else
 											RTMP_USB_URB_STATUS_GET(pHTTXContext->pUrb)));
+#endif /* USB_BULK_BUF_ALIGMENT */
 				}
 			}
 		}
@@ -1204,8 +1212,8 @@ static NTSTATUS ResetBulkOutHdlr(IN PRTMP_ADAPTER pAd, IN PCmdQElmt CMDQelmt)
 				UCHAR	pendingContext = 0;
 				PHT_TX_CONTEXT pHTTXContext = (PHT_TX_CONTEXT)(&pAd->TxContext[pAd->bulkResetPipeid ]);
 				PTX_CONTEXT pMLMEContext = (PTX_CONTEXT)(pAd->MgmtRing.Cell[pAd->MgmtRing.TxDmaIdx].AllocVa);
-				PTX_CONTEXT pNULLContext = (PTX_CONTEXT)(&pAd->PsPollContext);
-				PTX_CONTEXT pPsPollContext = (PTX_CONTEXT)(&pAd->NullContext);
+				PTX_CONTEXT pPsPollContext = (PTX_CONTEXT)(&pAd->PsPollContext);
+				PTX_CONTEXT pNULLContext = (PTX_CONTEXT)(&pAd->NullContext[0]);
 
 				if (pHTTXContext->IRPPending)
 					pendingContext |= 1;
@@ -1637,6 +1645,7 @@ static NTSTATUS UpdateTXChainAddress(IN PRTMP_ADAPTER pAd, IN PCmdQElmt CMDQelmt
 }
 #endif /* STREAM_MODE_SUPPORT */
 
+
 typedef NTSTATUS (*CMDHdlr)(IN PRTMP_ADAPTER pAd, IN PCmdQElmt CMDQelmt);
 
 static CMDHdlr CMDHdlrTable[] = {
@@ -1722,6 +1731,8 @@ static CMDHdlr CMDHdlrTable[] = {
 #else
 	NULL,
 #endif
+
+	NULL,
 };
 
 
@@ -1870,7 +1881,11 @@ VOID RTUSBWatchDog(IN RTMP_ADAPTER *pAd)
 				pHTTXContext = (PHT_TX_CONTEXT)(&pAd->TxContext[idx]);
 				if (pHTTXContext->IRPPending)
 				{	/* Check TxContext.*/
+#ifdef USB_BULK_BUF_ALIGMENT
+					pUrb = pHTTXContext->pUrb[pHTTXContext->CurtBulkIdx];
+#else
 					pUrb = pHTTXContext->pUrb;
+#endif /* USB_BULK_BUF_ALIGMENT */
 				}
 				else if (idx == MGMTPIPEIDX)
 				{
@@ -1879,7 +1894,7 @@ VOID RTUSBWatchDog(IN RTMP_ADAPTER *pAd)
 					/*Check MgmtContext.*/
 					pMLMEContext = (PTX_CONTEXT)(pAd->MgmtRing.Cell[pAd->MgmtRing.TxDmaIdx].AllocVa);
 					pPsPollContext = (PTX_CONTEXT)(&pAd->PsPollContext);
-					pNULLContext = (PTX_CONTEXT)(&pAd->NullContext);
+					pNULLContext = (PTX_CONTEXT)(&pAd->NullContext[0]);
 
 					if (pMLMEContext->IRPPending)
 					{

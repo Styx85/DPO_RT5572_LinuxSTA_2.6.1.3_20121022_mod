@@ -163,6 +163,38 @@ VOID MlmeCntlMachinePerformAction(
 			/* scan completed, init to not FastScan */
 			pAd->StaCfg.bImprovedScan = FALSE;
 
+#ifdef CONFIG_MULTI_CHANNEL
+		if (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_MEDIA_STATE_CONNECTED) && (INFRA_ON(pAd)) 
+			&& ((pAd->LatchRfRegs.Channel == pAd->CommonCfg.Channel) ||(pAd->LatchRfRegs.Channel == pAd->CommonCfg.CentralChannel)))
+		{
+						RTMPSendNullFrame(pAd, 
+										  pAd->CommonCfg.TxRate, 
+										  (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_WMM_INUSED) ? TRUE:FALSE),
+										  PWR_ACTIVE);
+
+			DBGPRINT(RT_DEBUG_TRACE, ("MT2_SCAN_CONF INFRA_ON -- Send PSM Data frame for off channel RM, SCAN_IN_PROGRESS=%d!\n",
+											RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS)));
+
+			OS_WAIT(20);
+			DBGPRINT(RT_DEBUG_TRACE, ("%s -- Send null frame pAd->StaCfg.Psm=%d\n", __FUNCTION__,pAd->StaCfg.Psm));
+
+		}
+
+		if ((P2P_CLI_ON(pAd))
+			&& ((pAd->LatchRfRegs.Channel == pAd->ApCliMlmeAux.Channel) || (pAd->LatchRfRegs.Channel == pAd->ApCliMlmeAux.CentralChannel)))
+		{
+						RTMPP2PSendNullFrame(pAd, 
+										  pAd->CommonCfg.TxRate, 
+										  (OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_WMM_INUSED) ? TRUE:FALSE),
+										  pAd->CommonCfg.bAPSDForcePowerSave ? PWR_SAVE : pAd->StaCfg.Psm);
+			DBGPRINT(RT_DEBUG_TRACE, ("MT2_SCAN_CONF P2P_CLI_ON -- Send PSM Data frame for off channel RM, SCAN_IN_PROGRESS=%d!\n",
+											RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_BSS_SCAN_IN_PROGRESS)));
+			OS_WAIT(20);
+			DBGPRINT(RT_DEBUG_TRACE, ("%s -- Send null frame pAd->StaCfg.Psm=%d\n", __FUNCTION__,pAd->StaCfg.Psm));
+
+		}
+#endif /*CONFIG_MULTI_CHANNEL*/
+
 #ifdef LED_CONTROL_SUPPORT
 			/* */
 			/* Set LED status to previous status. */
@@ -519,6 +551,9 @@ VOID CntlOidSsidProc(
 		MlmeEnqueue(pAd, ASSOC_STATE_MACHINE, MT2_MLME_DISASSOC_REQ,
 			    sizeof (MLME_DISASSOC_REQ_STRUCT), &DisassocReq, 0);
 		pAd->Mlme.CntlMachine.CurrState = CNTL_WAIT_DISASSOC;
+#ifdef CONFIG_MULTI_CHANNEL
+#endif /*CONFIG_MULTI_CHANNEL*/
+
 	} else {
 		if (ADHOC_ON(pAd)) {
 			DBGPRINT(RT_DEBUG_TRACE,
@@ -2207,8 +2242,44 @@ VOID LinkUp(
 	}
 #endif /* WPA_SUPPLICANT_SUPPORT */
 
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+	RtmpPrepareHwNullFrame(pAd,
+						&pAd->MacTab.Content[BSSID_WCID],
+						FALSE,
+						FALSE,
+						0,
+						OPMODE_STA,
+						PWR_SAVE,
+						TRUE,
+						0);
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
+
+
+
+
 	pAd->MacTab.MsduLifeTime = 5; /* default 5 seconds */
 
+#ifdef CONFIG_MULTI_CHANNEL
+	MultiChannelTimerStop(pAd);
+	if ((pAd->StaCfg.WscControl.WscConfMode != WSC_DISABLE) &&
+	    (pAd->StaCfg.WscControl.bWscTrigger
+	    )) 
+	{
+			DBGPRINT(RT_DEBUG_TRACE,
+				 ("WSC trigger not set Multi-channel!!\n"));
+	}
+	else if (P2P_CLI_ON(pAd)  
+		&& pEntry->PortSecured == WPA_802_1X_PORT_SECURED
+		&& pEntry->WepStatus == Ndis802_11WEPDisabled)
+	{
+		RTMPSetTimer(&pAd->Mlme.EDCAToHCCATimer, pAd->Mlme.EDCAToHCCATimerValue);
+		pAd->Mlme.EDCAToHCCATimerRunning = TRUE;		
+	}
+	pAd->Mlme.StaStayTick = 0;
+	if (P2P_CLI_ON(pAd))
+		pAd->StaCfg.bAutoReconnect = FALSE;
+
+#endif /* CONFIG_MULTI_CHANNEL */
 
 #ifdef IQ_CAL_SUPPORT
 	RTMP_CHIP_IQ_CAL(pAd, pAd->CommonCfg.Channel);
@@ -2250,6 +2321,10 @@ VOID LinkDown(
 	/* Do nothing if monitor mode is on */
 	if (MONITOR_ON(pAd))
 		return;
+
+#ifdef CONFIG_MULTI_CHANNEL
+	MultiChannelTimerStop(pAd);
+#endif /* CONFIG_MULTI_CHANNEL */
 
 
 #ifdef PCIE_PS_SUPPORT
@@ -2927,6 +3002,7 @@ VOID ComposeNullFrame(
 	PTXINFO_STRUC pTxInfo;
 	PTXWI_STRUC pTxWI;
 	UINT8 TXWISize = pAd->chipCap.TXWISize;
+	PTX_CONTEXT pNullContext = &pAd->NullContext[0];
 
 	NdisZeroMemory(&pAd->NullFrame, sizeof (HEADER_802_11));
 	pAd->NullFrame.FC.Type = BTYPE_DATA;
@@ -2935,25 +3011,25 @@ VOID ComposeNullFrame(
 	COPY_MAC_ADDR(pAd->NullFrame.Addr1, pAd->CommonCfg.Bssid);
 	COPY_MAC_ADDR(pAd->NullFrame.Addr2, pAd->CurrentAddress);
 	COPY_MAC_ADDR(pAd->NullFrame.Addr3, pAd->CommonCfg.Bssid);
-	RTMPZeroMemory(&pAd->NullContext.TransferBuffer->field.
+	RTMPZeroMemory(&pNullContext->TransferBuffer->field.
 		       WirelessPacket[0], 100);
 	pTxInfo =
-	    (PTXINFO_STRUC) & pAd->NullContext.TransferBuffer->field.
+	    (PTXINFO_STRUC) & pNullContext->TransferBuffer->field.
 	    WirelessPacket[0];
 	RTMPWriteTxInfo(pAd, pTxInfo,
 			(USHORT) (sizeof (HEADER_802_11) + TXWISize), TRUE,
 			EpToQueue[MGMTPIPEIDX], FALSE, FALSE);
 	pTxWI =
-	    (PTXWI_STRUC) & pAd->NullContext.TransferBuffer->field.
+	    (PTXWI_STRUC) & pNullContext->TransferBuffer->field.
 	    WirelessPacket[TXINFO_SIZE];
 	RTMPWriteTxWI(pAd, pTxWI, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, 0,
 		      BSSID_WCID, (sizeof (HEADER_802_11)), 0, 0,
 		      (UCHAR) pAd->CommonCfg.MlmeTransmit.field.MCS,
 		      IFS_BACKOFF, FALSE, &pAd->CommonCfg.MlmeTransmit);
-	RTMPMoveMemory(&pAd->NullContext.TransferBuffer->field.
+	RTMPMoveMemory(&pNullContext->TransferBuffer->field.
 		       WirelessPacket[TXWISize + TXINFO_SIZE], &pAd->NullFrame,
 		       sizeof (HEADER_802_11));
-	pAd->NullContext.BulkOutSize =
+	pNullContext->BulkOutSize =
 	    TXINFO_SIZE + TXWISize + sizeof (pAd->NullFrame) + 4;
 }
 #endif /* RTMP_MAC_USB */

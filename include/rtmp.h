@@ -34,6 +34,10 @@
 #include "rtmp_dot11.h"
 #include "wpa_cmm.h"
 
+#ifdef	CONFIG_HAS_EARLYSUSPEND
+#include <linux/earlysuspend.h>
+#endif
+
 
 #include "wsc.h"
 
@@ -91,6 +95,7 @@ typedef struct _UAPSD_INFO {
 /*+++Used for merge MiniportMMRequest() and MiniportDataMMRequest() into one function */
 #define MAX_DATAMM_RETRY	3
 #define MGMT_USE_QUEUE_FLAG	0x80
+#define MGMT_USE_SPECIFIC_FLAG 0x40
 /*---Used for merge MiniportMMRequest() and MiniportDataMMRequest() into one function */
 /* The number of channels for per-channel Tx power offset */
 
@@ -983,6 +988,17 @@ typedef struct _MLME_STRUCT {
 #ifdef RTMP_MAC_USB
 	RALINK_TIMER_STRUCT AutoWakeupTimer;
 	BOOLEAN AutoWakeupTimerRunning;
+#ifdef CONFIG_MULTI_CHANNEL
+	RALINK_TIMER_STRUCT HCCAToEDCATimer;
+	RALINK_TIMER_STRUCT EDCAToHCCATimer;
+	UINT32 HCCAToEDCATimerValue;
+	UINT32 EDCAToHCCATimerValue;
+	BOOLEAN HCCAToEDCATimerRunning;
+	BOOLEAN EDCAToHCCATimerRunning;
+	UINT32 StaStayTick;
+	UINT32 P2pStayTick;
+#endif /* CONFIG_MULTI_CHANNEL */
+
 #endif /* RTMP_MAC_USB */
 } MLME_STRUCT, *PMLME_STRUCT;
 
@@ -1870,6 +1886,11 @@ typedef struct _STA_ADMIN_CONFIG {
 	ULONG AntSPERFactor;
 	CHAR Rssi[2];
 #endif /* RT3290 */
+
+#ifdef CONFIG_MULTI_CHANNEL
+	INT p2pScanCount;
+#endif
+
 } STA_ADMIN_CONFIG, *PSTA_ADMIN_CONFIG;
 
 /* This data structure keep the current active BSS/IBSS's configuration that this STA */
@@ -2526,6 +2547,9 @@ struct _RTMP_ADAPTER {
 	/*======Semaphores (event) */
 	RTMP_OS_SEM UsbVendorReq_semaphore;
 	RTMP_OS_SEM reg_atomic;
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+	RTMP_OS_SEM MultiChannelLock;
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 	PVOID UsbVendorReqBuf;
 /*	wait_queue_head_t		*wait; */
 	VOID *wait;
@@ -2776,7 +2800,7 @@ struct _RTMP_ADAPTER {
 	HEADER_802_11 NullFrame;
 
 #ifdef RTMP_MAC_USB
-	TX_CONTEXT NullContext;
+	TX_CONTEXT NullContext[2];
 	TX_CONTEXT PsPollContext;
 #endif /* RTMP_MAC_USB */
 
@@ -3102,9 +3126,27 @@ struct _RTMP_ADAPTER {
 #endif /* OS_ABL_SUPPORT */
 
 
+#ifdef RTMP_MAC_USB
+	BOOLEAN FWinAutoRunMode;  /* Skip Load FW in Auto-Run Mode */
+#endif /* RTMP_MAC_USB */
 
 
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	struct	early_suspend	early_suspend;
+	BOOLEAN	late_resume_flag;
+#endif
 
+
+#ifdef CONFIG_MULTI_CHANNEL
+	CHAR NullFrBuf[256];
+	UINT32 MultiChannelFlowCtl;
+	RTMP_OS_TASK MultiChannelTask;
+	UCHAR MultiChannelAction;
+#endif /* CONFIG_MULTI_CHANNEL */
+
+
+	TXWI_STRUC NullTxWI;
+	USHORT NullBufOffset[2];
 };
 
 #if defined(RTMP_INTERNAL_TX_ALC) || defined(RTMP_TEMPERATURE_COMPENSATION) 
@@ -4235,6 +4277,14 @@ VOID RTMPSendNullFrame(
 	IN	BOOLEAN			bQosNull,
 	IN  USHORT			PwrMgmt);
 
+#ifdef CONFIG_MULTI_CHANNEL
+VOID RTMPP2PSendNullFrame(
+	IN  PRTMP_ADAPTER   pAd,
+	IN  UCHAR           TxRate,
+	IN	BOOLEAN			bQosNull,
+	IN  USHORT			PwrMgmt);
+#endif /*CONFIG_MULTI_CHANNEL*/
+
 #ifdef CONFIG_STA_SUPPORT
 VOID RTMPReportMicError(
 	IN  PRTMP_ADAPTER   pAd, 
@@ -4317,7 +4367,8 @@ VOID AsicPercentageDeltaPower(
 	IN 		PRTMP_ADAPTER 		pAd,
 	IN		CHAR				Rssi,
 	INOUT	PCHAR				pDeltaPwr,
-	INOUT	PCHAR				pDeltaPowerByBbpR1);
+	INOUT	PCHAR				pDeltaPowerByBbpR1,
+	IN		CHAR				DecidedRule);
 
 VOID AsicCompensatePowerViaBBP(
 	IN 		PRTMP_ADAPTER 		pAd,
@@ -7176,6 +7227,10 @@ NTSTATUS RTUSBFirmwareWrite(
 	IN PUCHAR		pFwImage,
 	IN ULONG		FwLen);
 
+NTSTATUS RTUSBFirmwareOpmode(
+        IN      PRTMP_ADAPTER   pAd,
+        OUT     PULONG                  pValue);
+
 NTSTATUS	RTUSBVenderReset(
 	IN	PRTMP_ADAPTER	pAd);
 
@@ -7491,7 +7546,8 @@ VOID RTUSBBulkOutDataPacket(
 	IN	UCHAR			Index);
 
 VOID RTUSBBulkOutNullFrame(
-	IN	PRTMP_ADAPTER	pAd);
+	IN	PRTMP_ADAPTER	pAd,
+	IN	UCHAR BulkOutPipeId);
 
 VOID RTUSBBulkOutRTSFrame(
 	IN	PRTMP_ADAPTER	pAd);
@@ -7846,6 +7902,11 @@ INT RTMP_COM_IoctlHandle(
 	IN	VOID					*pData,
 	IN	ULONG					Data);
 
+#ifdef CONFIG_HAS_EARLYSUSPEND
+void RTRegisterEarlySuspend(PRTMP_ADAPTER	pAd);
+void RTUnregisterEarlySuspend(PRTMP_ADAPTER	pAd);
+#endif //CONFIG_HAS_EARLYSUSPEND
+
 
 
 INT Set_VcoPeriod_Proc(
@@ -7908,6 +7969,83 @@ VOID RtmpPsActiveExtendCheck(
 VOID RtmpPsModeChange(
 	IN PRTMP_ADAPTER	pAd, 
 	IN UINT32			PsMode);
+
+#ifdef CONFIG_MULTI_CHANNEL
+VOID RtmpEnqueueLastNullFrame(
+	IN PRTMP_ADAPTER pAd,
+	IN PUCHAR pAddr,
+	IN UCHAR TxRate,
+	IN UCHAR PID,
+	IN UCHAR apidx,
+    IN BOOLEAN bQosNull,
+    IN BOOLEAN bEOSP,
+    IN UCHAR OldUP,
+    IN UCHAR PwrMgmt,
+	IN UCHAR OpMode);
+
+VOID EnableMACTxPacket(
+	IN PRTMP_ADAPTER pAd,
+	IN PMAC_TABLE_ENTRY pEntry,
+	IN UCHAR PwrMgmt,
+	IN BOOLEAN bTxNullFramei,
+	IN UCHAR QSel);
+
+VOID DisableMACTxPacket(
+	IN PRTMP_ADAPTER pAd,
+	IN PMAC_TABLE_ENTRY pEntry,
+	IN UCHAR PwrMgmt,
+	IN BOOLEAN bWaitACK,
+	IN UCHAR QSel);
+
+VOID InitMultiChannelRelatedValue(
+	IN PRTMP_ADAPTER pAd,
+	IN UCHAR Channel,
+	IN UCHAR CentralChannel);
+
+VOID EDCA_ActionTimeout(
+	IN PVOID SystemSpecific1, 
+	IN PVOID FunctionContext, 
+	IN PVOID SystemSpecific2, 
+	IN PVOID SystemSpecific3);
+
+VOID HCCA_ActionTimeout(
+	IN PVOID SystemSpecific1, 
+	IN PVOID FunctionContext, 
+	IN PVOID SystemSpecific2, 
+	IN PVOID SystemSpecific3);
+
+NDIS_STATUS MultiChannelThreadInit(
+	IN  PRTMP_ADAPTER pAd);
+
+BOOLEAN MultiChannelThreadExit(
+	IN  PRTMP_ADAPTER pAd);
+
+VOID MultiChannelTimerStop(
+	IN  PRTMP_ADAPTER pAd);
+
+VOID MultiChannelTimerStart(
+	IN  PRTMP_ADAPTER pAd,
+	IN MAC_TABLE_ENTRY  *pEntry);
+#endif /* CONFIG_MULTI_CHANNEL */
+
+VOID RtmpPrepareHwNullFrame(
+	IN PRTMP_ADAPTER pAd,
+	IN PMAC_TABLE_ENTRY pEntry,
+	IN BOOLEAN bQosNull,
+	IN BOOLEAN bEOSP,
+	IN UCHAR OldUP,
+	IN UCHAR OpMode,
+	IN UCHAR PwrMgmt,
+	IN BOOLEAN bWaitACK,
+	IN CHAR Index);
+
+#ifdef CONFIG_SWITCH_CHANNEL_OFFLOAD
+VOID RT5592_ChannelParamsInit(PRTMP_ADAPTER pAd,
+							  UCHAR MultiChainnelEnable,
+							  UCHAR ControlChannel,
+							  UCHAR Channel);
+#endif /* CONFIG_SWITCH_CHANNEL_OFFLOAD */
+
 #endif /* CONFIG_STA_SUPPORT */
 #endif  /* __RTMP_H__ */
 

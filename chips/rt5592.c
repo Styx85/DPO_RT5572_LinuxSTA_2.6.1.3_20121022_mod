@@ -1152,7 +1152,7 @@ static VOID NICInitRT5592RFRegisters(IN PRTMP_ADAPTER pAd)
 
 	/* BBP for A band GLRT */
 	RTUSBMultiWrite_nBytes(pAd, 0x725A, (PUCHAR)BBP5592Reg_GLRT_5G, sizeof(BBP5592Reg_GLRT_5G), sizeof(BBP5592Reg_GLRT_5G));
-#endif
+#endif /*CONFIG_SWITCH_CHANNEL_OFFLOAD*/
 
 	/*
 		From RT3071 Power Sequence v1.1 document, the Normal Operation Setting Registers as follow :
@@ -1675,10 +1675,14 @@ static UINT32 RT5592_ChannelParamsAlloc(PRTMP_ADAPTER pAd)
 }
 
 
-static VOID RT5592_ChannelParamsInit(RTMP_ADAPTER *pAd, UCHAR Channel)
+VOID RT5592_ChannelParamsInit(PRTMP_ADAPTER pAd,
+							  UCHAR MultiChannelEnable,
+							  UCHAR ControlChannel,
+										  UCHAR Channel)
 {
 	RTMP_CHIP_CAP *pChipCap = &pAd->chipCap;
 	UCHAR *Pos = pChipCap->ChannelParam;
+	UINT8 Xtal;
 	UINT32 i;
 	UINT32 MacValue;
 	UINT32 tmpRfFreqOffset;
@@ -1729,12 +1733,22 @@ static VOID RT5592_ChannelParamsInit(RTMP_ADAPTER *pAd, UCHAR Channel)
 	}	
 
 	/* BBPCurrentBW */
-	*Pos = pAd->CommonCfg.BBPCurrentBW;
+	if (ControlChannel != Channel)
+		*Pos = BW_40;
+	else
+		*Pos = BW_20;
 	Pos++;
 
 	/* Frequency Plan (N, K, R, Mod) for 20M or 40M */
-	pFrequencyItem = RT5592_Frequency_Plan[pAd->chipCap.XtalType].pFrequencyPlan;
-	for (i = 0; i < RT5592_Frequency_Plan[pAd->chipCap.XtalType].totalFreqItem; i++, pFrequencyItem++)
+	RTMP_IO_READ32(pAd, DEBUG_INDEX, &MacValue);
+	
+	if (MacValue & 0x80000000)	
+		Xtal = XTAL40M;
+	else
+		Xtal = XTAL20M;
+
+	pFrequencyItem = RT5592_Frequency_Plan[Xtal].pFrequencyPlan;
+	for (i = 0; i < RT5592_Frequency_Plan[Xtal].totalFreqItem; i++, pFrequencyItem++)
 	{
 		if (Channel == pFrequencyItem->Channel)
 		{
@@ -1791,6 +1805,13 @@ static VOID RT5592_ChannelParamsInit(RTMP_ADAPTER *pAd, UCHAR Channel)
 	*Pos = GET_LNA_GAIN(pAd);
 	Pos++;
 
+	/* Control Channel */
+	if (MultiChannelEnable)
+	{		
+		*Pos = ControlChannel;
+		Pos++;
+	}
+
 	/* Send Channel Parameters to MCU */
 	RTUSBMultiWrite_nBytes(pAd, 0x7050, (PUCHAR)pChipCap->ChannelParam, pChipCap->ChannelParamsSize, pChipCap->ChannelParamsSize);
 
@@ -1798,8 +1819,8 @@ static VOID RT5592_ChannelParamsInit(RTMP_ADAPTER *pAd, UCHAR Channel)
 	pAd->LatchRfRegs.Channel = Channel;
 
 	DBGPRINT(RT_DEBUG_TRACE,
-		("RT5592_ChipSwitchChannel#%d(RF=%d, Pwr0=%d, Pwr1=%d, %dT), "
-		"N=0x%02X, K=0x%02X, R=0x%02X, Xtal=%d\n",
+		("\nRT5592_ChipSwitchChannel#%d(RF=%d, Pwr0=%d, Pwr1=%d, %dT), "
+		"N=0x%02X, K=0x%02X, R=0x%02X, Xtal=%d, ChannelParamsSize = %d, ControlChannel = %d\n",
 		Channel,
 		pAd->RfIcType,
 		TxPwer,
@@ -1808,7 +1829,9 @@ static VOID RT5592_ChannelParamsInit(RTMP_ADAPTER *pAd, UCHAR Channel)
 		pFrequencyItem->N,
 		pFrequencyItem->K,
 		pFrequencyItem->R,
-		pAd->chipCap.XtalType));
+		Xtal,
+		pChipCap->ChannelParamsSize,
+		ControlChannel));
 	}
 
 static VOID RT5592_ChipSwitchChannelOffload(
@@ -1822,7 +1845,7 @@ static VOID RT5592_ChipSwitchChannelOffload(
 
 
 	/* Channel Param Initialzation */
-	RT5592_ChannelParamsInit(pAd, Channel);
+	RT5592_ChannelParamsInit(pAd, 0, Channel, Channel);
 
 #ifdef RTMP_MAC_USB
 	if (IS_USB_INF(pAd))
@@ -1839,19 +1862,44 @@ static VOID RT5592_ChipSwitchChannelOffload(
 	}
 #endif /* RTMP_MAC_USB */
 
+#ifdef CONFIG_MULTI_CHANNEL
+	if (INFRA_ON(pAd))
+	{
+		UINT32 MTxCycle, Data;
+		INT ret;
+		//RTMP_SEM_EVENT_WAIT(&pAd->reg_atomic, ret);
+
+		RTMP_OS_NETDEV_STOP_QUEUE(pAd->net_dev);
+		RTMP_SET_FLAG(pAd, fRTMP_ADAPTER_DISABLE_DEQUEUEPACKET);
+		
+		/* Polling EDCA Out-Q until empty  */
+		for (MTxCycle = 0; MTxCycle < 2000; MTxCycle++)
+		{
+
+			RTMP_IO_READ32(pAd, TXRXQ_STA, &Data);
+			if (((Data >> 19) & 0x1f) == 0)	
+				break;
+			else
+				RTMPusecDelay(50);
+		}
+
+		if (MTxCycle >=1999)
+			printk("MTxCycle>=1999\n");
+	}
+#endif /*CONFIG_MULTI_CHANNEL*/
 	/* Trggier MCU to switch channel */
-	AsicSendCommandToMcu(pAd, 0x68, 0xff, 0x0, 0x0, bInLock);
+	AsicSendCommandToMcu(pAd, CHANNEL_SWITCH_OFFLOAD, 0xff, 0x0, 0x0, bInLock);
 
 	/* Check MCU if complete siwtch channel not in bss scan in progress */
 	do
 	{
-		RTMP_IO_READ32(pAd, 0x7063, &MacValue);
+		RTMP_IO_READ32(pAd, CHANNEL_MCU_READY, &MacValue);
 
 		if ((MacValue & 0x000000ff) == 0x00000078)
 		{
 			/* Clear 0x7063 to 0x00 */ 
 			MacValue = (MacValue &~ 0x000000ff);
-			RTMP_IO_WRITE32(pAd, 0x7063, MacValue);
+			RTMP_IO_WRITE32(pAd, CHANNEL_MCU_READY, MacValue);
 			break;
 		}
 
@@ -1863,7 +1911,14 @@ static VOID RT5592_ChipSwitchChannelOffload(
 	{
 		DBGPRINT_RAW(RT_DEBUG_ERROR, ("RT5592_ChipSwitchChannel: Retry count exhausted\n"));
 	}
+#ifdef CONFIG_MULTI_CHANNEL
+	if (INFRA_ON(pAd))
+	{
+		RTMP_CLEAR_FLAG(pAd, fRTMP_ADAPTER_DISABLE_DEQUEUEPACKET);
 
+		RTMP_OS_NETDEV_WAKE_QUEUE(pAd->net_dev);
+	}
+#endif /*CONFIG_MULTI_CHANNEL*/	
 #ifdef RTMP_MAC_USB
 	if (IS_USB_INF(pAd)) {
 		RTMP_SEM_EVENT_UP(&pAd->reg_atomic);
@@ -1871,7 +1926,7 @@ static VOID RT5592_ChipSwitchChannelOffload(
 #endif /* RTMP_MAC_USB */
 
 }
-#endif
+#endif /* CONFIG_SWITCH_CHANNEL_OFFLOAD */
 
 static VOID RT5592_ChipSwitchChannel(
 	IN PRTMP_ADAPTER 			pAd,
@@ -2508,9 +2563,9 @@ static const RTMP_CHIP_CAP RT5592_ChipCap = {
 #endif /* CONFIG_STA_SUPPORT */
 #endif /* RTMP_FREQ_CALIBRATION_SUPPORT */
 #ifdef CONFIG_SWITCH_CHANNEL_OFFLOAD
-	.ChannelParamsSize = 19,
+	.ChannelParamsSize = 20,
 	.XtalType = 1,
-#endif
+#endif /*CONFIG_SWITCH_CHANNEL_OFFLOAD*/
 };
 
  
@@ -2530,7 +2585,7 @@ static const RTMP_CHIP_OP RT5592_ChipOp = {
 	.ChipSwitchChannel = RT5592_ChipSwitchChannelOffload,
 #else
 	.ChipSwitchChannel = RT5592_ChipSwitchChannel,
-#endif
+#endif /*CONFIG_SWITCH_CHANNEL_OFFLOAD*/
 	.AsicAdjustTxPower = AsicAdjustTxPower,
 	.ChipAGCInit = RT5592_RTMPAGCInit,
 	.NetDevNickNameInit = NetDevNickNameInit,
@@ -2566,7 +2621,7 @@ VOID RT5592_Init(
 
 #ifdef CONFIG_SWITCH_CHANNEL_OFFLOAD
 	RT5592_ChannelParamsAlloc(pAd);
-#endif
+#endif /*CONFIG_SWITCH_CHANNEL_OFFLOAD*/
 
 	RtmpChipBcnInit(pAd);
 

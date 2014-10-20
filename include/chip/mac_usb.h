@@ -133,12 +133,7 @@ typedef	struct	_TXINFO_STRUC {
 	UINT32		USBDMANextVLD:1;	/*used ONLY in USB bulk Aggregation, NextValid */
 	UINT32		CSO:1; /* Checksum offload */
 	UINT32		USO:1; /* UDP checksum enable */
-#ifndef USB_BULK_BUF_ALIGMENT
-	UINT32		SwUseLastRound:1; /* Software use. */
-
-#else
-	UINT32		bFragLasAlignmentsectiontRound:1;/* Software use */
-#endif /* USB_BULK_BUF_ALIGMENT */
+	UINT32		SwRingUseLastRound:1;/* Software use */
 	UINT32		QSEL:2;	/* select on-chip FIFO ID for 2nd-stage output scheduler.0:MGMT, 1:HCCA 2:EDCA */
 	UINT32		WIV:1;	/* Wireless Info Valid. 1 if Driver already fill WI,  o if DMA needs to copy WI to correctposition */
 	UINT32		TCPOffset:5;
@@ -153,11 +148,7 @@ typedef	struct	_TXINFO_STRUC {
 	UINT32		TCPOffset:5;
 	UINT32		WIV:1;	/* Wireless Info Valid. 1 if Driver already fill WI,  o if DMA needs to copy WI to correctposition */
 	UINT32		QSEL:2;	/* select on-chip FIFO ID for 2nd-stage output scheduler.0:MGMT, 1:HCCA 2:EDCA */
-#ifndef USB_BULK_BUF_ALIGMENT
-	UINT32		SwUseLastRound:1; /* Software use. */
-#else
-	UINT32		bFragLasAlignmentsectiontRound:1;/* Software use */
-#endif /* USB_BULK_BUF_ALIGMENT */
+	UINT32		SwRingUseLastRound:1; /* Software use. */
 	UINT32		USO:1; /* UDP checksum enable */
 	UINT32		CSO:1; /* Checksum offload */
 	UINT32		USBDMANextVLD:1;	/*used ONLY in USB bulk Aggregation, NextValid */
@@ -191,7 +182,11 @@ typedef struct __TX_BUFFER{
 
 typedef struct __HTTX_BUFFER{
 	union{
+#ifdef USB_BULK_BUF_ALIGMENT
+		UCHAR		WirelessPacket[MAX_ALIGMENT_TXBULK_SIZE];
+#else
 		UCHAR			WirelessPacket[MAX_TXBULK_SIZE];
+#endif /* USB_BULK_BUF_ALIGMENT */
 		HEADER_802_11	NullFrame;
 		PSPOLL_FRAME	PsPollPacket;
 		RTS_FRAME		RTSFrame;
@@ -239,10 +234,18 @@ typedef struct _TX_CONTEXT
 typedef struct _HT_TX_CONTEXT
 {
 	PVOID			pAd;		/*Initialized in MiniportInitialize */
+#ifdef USB_BULK_BUF_ALIGMENT
+	PURB			pUrb[BUF_ALIGMENT_RINGSIZE];			/*Initialized in MiniportInitialize */
+#else
 	PURB			pUrb;			/*Initialized in MiniportInitialize */
+#endif /* USB_BULK_BUF_ALIGMENT */
 	PIRP			pIrp;			/*used to cancel pending bulk out. */
 									/*Initialized in MiniportInitialize */
+#ifdef USB_BULK_BUF_ALIGMENT
+	PHTTX_BUFFER	TransferBuffer[BUF_ALIGMENT_RINGSIZE];	/*Initialized in MiniportInitialize */
+#else
 	PHTTX_BUFFER	TransferBuffer;	/*Initialized in MiniportInitialize */
+#endif /* USB_BULK_BUF_ALIGMENT */
 	ULONG			BulkOutSize;	/* Indicate the total bulk-out size in bytes in one bulk-transmission */
 	UCHAR			BulkOutPipeId;
 	BOOLEAN			IRPPending;
@@ -257,10 +260,15 @@ typedef struct _HT_TX_CONTEXT
 	ULONG			NextBulkOutPosition;	/* Indicate the buffer start offset of a bulk-transmission */
 	ULONG			ENextBulkOutPosition;	/* Indicate the buffer end offset of a bulk-transmission */
 	UINT			TxRate;
+#ifdef USB_BULK_BUF_ALIGMENT
+	ra_dma_addr_t		data_dma[BUF_ALIGMENT_RINGSIZE];		/* urb dma on linux */
+#else
 	ra_dma_addr_t		data_dma;		/* urb dma on linux */
+#endif /* USB_BULK_BUF_ALIGMENT */
 #ifdef USB_BULK_BUF_ALIGMENT
 	ULONG 			CurWriteIdx;	/* pointer to next 32k bytes position when wirte tx resource or when bulk out sizze not > 0x6000 */
 	ULONG 			NextBulkIdx;	/* pointer to next alignment section when bulk ot */
+	ULONG 			CurtBulkIdx;	/* pointer to next alignment section when bulk ot */
 #endif /* USB_BULK_BUF_ALIGMENT */
 
 }	HT_TX_CONTEXT, *PHT_TX_CONTEXT, **PPHT_TX_CONTEXT;

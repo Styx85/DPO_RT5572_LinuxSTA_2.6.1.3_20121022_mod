@@ -28,7 +28,11 @@ HAS_WPA_SUPPLICANT=y
 
 # Support Native WpaSupplicant for Network Maganger
 # i.e. wpa_supplicant -Dwext
-HAS_NATIVE_WPA_SUPPLICANT_SUPPORT=y
+
+# what if user want to use wpa_supplicant to serve P2P function/feature, 
+# in case, it must use Ralink Propriectary wpa_supplicant to do.
+# and this compile flag will report P2P Related Event to Ralink wpa_supplicant.
+HAS_NATIVE_WPA_SUPPLICANT_SUPPORT=n
 
 #Support Net interface block while Tx-Sw queue full
 HAS_BLOCK_NET_IF=n
@@ -47,7 +51,7 @@ HAS_CS_SUPPORT=n
 HAS_MCAST_RATE_SPECIFIC_SUPPORT=n
 
 # Support for Multiple Cards
-HAS_MC_SUPPORT=n
+HAS_MC_SUPPORT=y
 
 #Support for PCI-MSI
 HAS_MSI_SUPPORT=n
@@ -143,6 +147,7 @@ HAS_RFKILL_HW_SUPPORT=n
 
 
 
+
 HAS_APCLI_WPA_SUPPLICANT=n
 
 HAS_RTMP_FLASH_SUPPORT=n
@@ -181,6 +186,7 @@ HAS_RESOURCE_BOOT_ALLOC=n
 
 HAS_NEW_MBSSID_MODE=y
 
+HAS_MULTI_CHANNEL=n
 #################################################
 
 CC := $(CROSS_COMPILE)gcc
@@ -258,6 +264,10 @@ endif
 
 ifeq ($(HAS_SNMP_SUPPORT),y)
 WFLAGS += -DSNMP_SUPPORT
+endif
+
+ifeq ($(HAS_USB_BULK_BUF_ALIGMENT),y)
+WFLAGS += -DUSB_BULK_BUF_ALIGMENT -DALIGMENT_BULKAGGRE_SIZE=14 -DBUF_ALIGMENT_RINGSIZE=3
 endif
 
 ifeq ($(HAS_QOS_DLS_SUPPORT),y)
@@ -422,6 +432,11 @@ endif
 
 ifeq ($(HAS_SWITCH_CHANNEL_OFFLOAD), y)
 WFLAGS += -DCONFIG_SWITCH_CHANNEL_OFFLOAD
+endif
+
+
+ifeq ($(HAS_MULTI_CHANNEL),y)
+WFLAGS += -DCONFIG_SWITCH_CHANNEL_OFFLOAD -DCONFIG_MULTI_CHANNEL
 endif
 
 #################################################

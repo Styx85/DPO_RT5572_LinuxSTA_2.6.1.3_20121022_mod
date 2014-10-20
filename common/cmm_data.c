@@ -86,6 +86,10 @@ NDIS_STATUS MiniportMMRequest(
 	UINT8 TXWISize = pAd->chipCap.TXWISize;
 	UCHAR rtmpHwHdr[TXINFO_SIZE +  pAd->chipCap.TXWISize]; /*RTMP_HW_HDR_LEN];*/
 	BOOLEAN			bUseDataQ = FALSE, FlgDataQForce = FALSE, FlgIsLocked = FALSE;
+#ifdef CONFIG_MULTI_CHANNEL
+	BOOLEAN bWaitACK = FALSE;
+#endif /* CONFIG_MULTI_CHANNEL */
+
 	int 			retryCnt = 0;
 
 	ASSERT(Length <= MGMT_DMA_BUFFER_SIZE);
@@ -96,6 +100,14 @@ NDIS_STATUS MiniportMMRequest(
 		QueIdx &= (~MGMT_USE_QUEUE_FLAG);
 	}
 
+
+#ifdef CONFIG_MULTI_CHANNEL
+	if ((QueIdx & MGMT_USE_SPECIFIC_FLAG) == MGMT_USE_SPECIFIC_FLAG)
+	{
+		bWaitACK = TRUE;
+		QueIdx &= (~MGMT_USE_SPECIFIC_FLAG);
+	}
+#endif /* CONFIG_MULTI_CHANNEL */
 
 	do
 	{
@@ -139,6 +151,16 @@ NDIS_STATUS MiniportMMRequest(
 			/*pAd->CommonCfg.MlmeTransmit.field.MODE = MODE_CCK;*/
 			/*pAd->CommonCfg.MlmeRate = RATE_2;*/
 
+
+#ifdef CONFIG_MULTI_CHANNEL
+			if (bWaitACK)
+			{
+				RTMP_SET_WAIT_SPECIFIC_PACKET(pPacket, RTMP_FRAME_WAIT_HW_ACK);
+				DBGPRINT(RT_DEBUG_TRACE, ("3. Wait ACK...\n"));
+			}
+			else
+				RTMP_SET_WAIT_SPECIFIC_PACKET(pPacket, 0);
+#endif /* CONFIG_MULTI_CHANNEL */
 
 			Status = MlmeHardTransmit(pAd, QueIdx, pPacket, FlgDataQForce, FlgIsLocked);
 			if (Status == NDIS_STATUS_SUCCESS)
@@ -431,6 +453,7 @@ NDIS_STATUS MlmeHardTransmitMgmtRing(
 					(UCHAR)pMacEntry->MaxHTPhyMode.field.MCS,
 					IFS_BACKOFF, FALSE, &pMacEntry->MaxHTPhyMode);
 	}
+
 
 #ifdef RT_BIG_ENDIAN
 	RTMPWIEndianChange(pAd, (PUCHAR)pFirstTxWI, TYPE_TXWI);
@@ -821,7 +844,12 @@ VOID RTMPDeQueuePacket(
 	if (QIdx == NUM_OF_TX_RING)
 	{
 		sQIdx = 0;
-		eQIdx = 3;	/* 4 ACs, start from 0.*/
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+		eQIdx = QID_HCCA;	/* 5 ACs, start from 0.*/
+#else /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
+		eQIdx = QID_AC_VO;	/* 4 ACs, start from 0.*/
+#endif /* !defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
+
 	}
 	else
 	{
@@ -844,13 +872,22 @@ VOID RTMPDeQueuePacket(
 										fRTMP_ADAPTER_RADIO_OFF |
 										fRTMP_ADAPTER_RESET_IN_PROGRESS |
 										fRTMP_ADAPTER_HALT_IN_PROGRESS |
-										fRTMP_ADAPTER_NIC_NOT_EXIST)))
+										fRTMP_ADAPTER_NIC_NOT_EXIST
+#ifdef CONFIG_MULTI_CHANNEL
+										| fRTMP_ADAPTER_DISABLE_DEQUEUEPACKET
+#endif /* CONFIG_MULTI_CHANNEL */
+										)))
 				)
 			{
 				RTMP_STOP_DEQUEUE(pAd, QueIdx, IrqFlags);
 				return;
 			}
 			
+#ifdef CONFIG_MULTI_CHANNEL
+			if ((pAd->MultiChannelFlowCtl & (1 << QueIdx)) == (1 << QueIdx))
+				break;
+#endif /* CONFIG_MULTI_CHANNEL */
+
 			if (Count >= Max_Tx_Packets)
 				break;
 
@@ -975,6 +1012,9 @@ VOID RTMPDeQueuePacket(
 
 #ifdef RTMP_MAC_USB
 		if (!hasTxDesc)
+#ifdef CONFIG_MULTI_CHANNEL
+			if ((pAd->MultiChannelFlowCtl & (1 << QueIdx)) != (1 << QueIdx))
+#endif /* CONFIG_MULTI_CHANNEL */
 			RTUSBKickBulkOut(pAd);
 #endif /* RTMP_MAC_USB */
 		
@@ -1326,6 +1366,7 @@ VOID RTMPWriteTxWI_Data(
 		}
 	}	
 #endif /* INF_AMAZON_SE */	
+
 
 }
 
@@ -2023,10 +2064,12 @@ BOOLEAN MacTableDeleteEntry(
 
 
 
+			
 //   			NdisZeroMemory(pEntry, sizeof(MAC_TABLE_ENTRY));
 			NdisZeroMemory(pEntry->Addr, MAC_ADDR_LEN);
 			/* invalidate the entry */
 			SET_ENTRY_NONE(pEntry);
+
 			pAd->MacTab.Size --;
 			DBGPRINT(RT_DEBUG_TRACE, ("MacTableDeleteEntry1 - Total= %d\n", pAd->MacTab.Size));
 		}
@@ -2954,4 +2997,164 @@ VOID RtmpEnqueueNullFrame(
 	}
 }
 
+
+VOID RtmpPrepareHwNullFrame(
+	IN PRTMP_ADAPTER pAd,
+	IN PMAC_TABLE_ENTRY pEntry,
+	IN BOOLEAN bQosNull,
+	IN BOOLEAN bEOSP,
+	IN UCHAR OldUP,
+	IN UCHAR OpMode,
+	IN UCHAR PwrMgmt,
+	IN BOOLEAN bWaitACK,
+	IN CHAR Index)
+{
+	UINT8 TXWISize = pAd->chipCap.TXWISize;
+	PTXWI_STRUC pTxWI = &pAd->NullTxWI;
+	PUCHAR pNullFrame;
+	NDIS_STATUS    NState;
+	PHEADER_802_11 pNullFr;
+	ULONG Length;
+	UCHAR *ptr;
+	UINT i;
+	UINT32 longValue;
+	UCHAR MlmeRate;
+
+	NState = MlmeAllocateMemory(pAd, (PUCHAR *)&pNullFrame);
+
+	NdisZeroMemory(pNullFrame, 48);
+	NdisZeroMemory(pTxWI, TXWISize);
+
+	if (NState == NDIS_STATUS_SUCCESS) 
+	{
+		pNullFr = (PHEADER_802_11) pNullFrame;
+		Length = sizeof(HEADER_802_11);
+		
+		pNullFr->FC.Type = BTYPE_DATA;
+		pNullFr->FC.SubType = SUBTYPE_NULL_FUNC;
+		if (Index == 1)
+			pNullFr->FC.ToDs = 0;
+		else
+		pNullFr->FC.ToDs = 1;
+		pNullFr->FC.FrDs = 0;
+
+		COPY_MAC_ADDR(pNullFr->Addr1, pEntry->Addr);
+		{
+			COPY_MAC_ADDR(pNullFr->Addr2, pAd->CurrentAddress);
+			COPY_MAC_ADDR(pNullFr->Addr3, pAd->CommonCfg.Bssid);
+		}
+
+		pNullFr->FC.PwrMgmt = PwrMgmt;
+	
+		pNullFr->Duration = pAd->CommonCfg.Dsifs + RTMPCalcDuration(pAd, pAd->CommonCfg.TxRate, 14);
+
+		/* sequence is increased in MlmeHardTx */
+		pNullFr->Sequence = pAd->Sequence;
+		pAd->Sequence = (pAd->Sequence+1) & MAXSEQ; /* next sequence  */
+
+		if (bQosNull)
+		{
+			UCHAR *qos_p = ((UCHAR *)pNullFr) + Length;
+
+			pNullFr->FC.SubType = SUBTYPE_QOS_NULL;
+
+			/* copy QOS control bytes */
+			qos_p[0] = ((bEOSP) ? (1 << 4) : 0) | OldUP;
+			qos_p[1] = 0;
+			Length += 2;
+		} /* End of if */
+
+		if (Index == 1)
+		{
+			HTTRANSMIT_SETTING Transmit;
+
+			Transmit.word = pEntry->MaxHTPhyMode.word;
+			Transmit.field.BW = 0;
+			if (Transmit.field.MCS > 7)
+				Transmit.field.MCS = 7;
+
+			RTMPWriteTxWI(pAd,
+						pTxWI,
+						FALSE,
+						FALSE,
+						FALSE,
+						FALSE,
+						TRUE,
+						TRUE,
+						0,
+						pEntry->Aid,
+						Length,
+						(UCHAR)Transmit.field.MCS,
+						0,
+						(UCHAR)Transmit.field.MCS,
+						IFS_HTTXOP,
+						FALSE,
+						&Transmit);
+		}
+		else
+		{
+			RTMPWriteTxWI(pAd,
+						pTxWI,
+						FALSE,
+						FALSE,
+						FALSE,
+						FALSE,
+						TRUE,
+						0,
+						0,
+						pEntry->Aid,
+						Length,
+						(UCHAR)pAd->CommonCfg.MlmeTransmit.field.MCS,
+						0,
+						(UCHAR)pAd->CommonCfg.MlmeTransmit.field.MCS,
+						IFS_HTTXOP,
+						FALSE,
+						&pAd->CommonCfg.MlmeTransmit);
+		}
+
+		if (bWaitACK)
+			pTxWI->TXRPT = 1;
+
+		ptr = (PUCHAR)&pAd->NullTxWI;
+
+#ifdef RT_BIG_ENDIAN
+		RTMPWIEndianChange(pAd, ptr, TYPE_TXWI);
+#endif
+		for (i=0; i < TXWISize; i+=4)
+		{
+			longValue =  *ptr + (*(ptr + 1) << 8) + (*(ptr + 2) << 16) + (*(ptr + 3) << 24);
+			if (Index == 0)
+				RTMP_IO_WRITE32(pAd, pAd->NullBufOffset[0] + i, longValue);
+			else if (Index == 1)
+				RTMP_IO_WRITE32(pAd, pAd->NullBufOffset[1] + i, longValue);
+				
+			ptr += 4;
+		}
+		
+		ptr = pNullFrame;
+		
+#ifdef RT_BIG_ENDIAN
+		RTMPFrameEndianChange(pAd, ptr, DIR_WRITE, FALSE);
+#endif
+		for (i= 0; i< Length; i+=4)
+		{
+			longValue =  *ptr + (*(ptr + 1) << 8) + (*(ptr + 2) << 16) + (*(ptr + 3) << 24);
+			hex_dump("null frame before", &longValue, 4);
+			if (Index == 0) //for ra0 
+				RTMP_IO_WRITE32(pAd, pAd->NullBufOffset[0] + TXWISize+ i, longValue);
+			else if (Index == 1) //for p2p0
+				RTMP_IO_WRITE32(pAd, pAd->NullBufOffset[1] + TXWISize+ i, longValue);
+				
+			ptr += 4;
+		
+			RTMP_IO_READ32(pAd, pAd->NullBufOffset + TXWISize+ i, &longValue);
+			hex_dump("null frame after", &longValue, 4);
+		}
+	}
+
+	if (pNullFrame)
+	{
+		MlmeFreeMemory(pAd, pNullFrame);
+	}
+}
 

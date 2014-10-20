@@ -395,6 +395,10 @@ struct usb_driver rtusb_driver = {
 #endif /* USB_SUPPORT_SELECTIVE_SUSPEND */
 	suspend:	rt2870_suspend,
 	resume:		rt2870_resume,
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,22)
+	reset_resume:	rt2870_resume,
+#endif
+
 #endif /* CONFIG_PM */
 	};
 
@@ -414,6 +418,15 @@ static int rt2870_suspend(
 	struct net_device *net_dev;
 	VOID *pAd = usb_get_intfdata(intf);
 
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	UCHAR check_early_suspend_flag;
+	RTMP_DRIVER_ADAPTER_CHECK_EARLYSUSPEND(pAd, &check_early_suspend_flag);
+	if (check_early_suspend_flag == TRUE){
+		VIRTUAL_IF_DOWN(pAd);
+		DBGPRINT(RT_DEBUG_OFF, ("%s, We has already register earlysuspend, make VIRTUAL_IF_DOWN\n", __func__));
+		return 0;
+	}
+#endif
 #ifdef USB_SUPPORT_SELECTIVE_SUSPEND
 	UCHAR Flag;
 	DBGPRINT(RT_DEBUG_ERROR, ("autosuspend===> rt2870_suspend()\n"));
@@ -448,6 +461,14 @@ static int rt2870_resume(
 {
 	struct net_device *net_dev;
 	VOID *pAd = usb_get_intfdata(intf);
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	UCHAR check_early_suspend_flag;
+	RTMP_DRIVER_ADAPTER_CHECK_EARLYSUSPEND(pAd, &check_early_suspend_flag);
+	if (check_early_suspend_flag == TRUE){
+		DBGPRINT(RT_DEBUG_OFF, ("%s, We has already register earlysuspend, do nothing here\n", __func__));
+		return 0;
+	}
+#endif
 
 #ifdef USB_SUPPORT_SELECTIVE_SUSPEND
 	INT 		pm_usage_cnt;
@@ -615,6 +636,9 @@ static void rt2870_disconnect(struct usb_device *dev, VOID *pAd)
 #endif /* LINUX_VERSION_CODE */
 	udelay(1);
 
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	RTMP_DRIVER_ADAPTER_UNREGISTER_EARLYSUSPEND(pAd);
+#endif
 #ifdef RT_CFG80211_SUPPORT
 	RTMP_DRIVER_80211_UNREGISTER(pAd, net_dev);
 #endif /* RT_CFG80211_SUPPORT */
@@ -794,6 +818,10 @@ static int rt2870_probe(
 	RtmpOSNetDevAddrSet(OpMode, net_dev, &PermanentAddress[0], NULL);
 #endif /* PRE_ASSIGN_MAC_ADDR */
 
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	RTMP_DRIVER_ADAPTER_REGISTER_EARLYSUSPEND(pAd);
+#endif
+
 #ifdef EXT_BUILD_CHANNEL_LIST
 	RTMP_DRIVER_SET_PRECONFIG_VALUE(pAd);
 #endif /* EXT_BUILD_CHANNEL_LIST */
@@ -822,6 +850,9 @@ err_out:
 RTMP_DRV_USB_COMPLETE_HANDLER RtmpDrvUsbBulkOutDataPacketComplete = NULL;
 RTMP_DRV_USB_COMPLETE_HANDLER RtmpDrvUsbBulkOutMLMEPacketComplete = NULL;
 RTMP_DRV_USB_COMPLETE_HANDLER RtmpDrvUsbBulkOutNullFrameComplete = NULL;
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+RTMP_DRV_USB_COMPLETE_HANDLER RtmpDrvUsbBulkOutHCCANullFrameComplete = NULL;
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 RTMP_DRV_USB_COMPLETE_HANDLER RtmpDrvUsbBulkOutRTSFrameComplete = NULL;
 RTMP_DRV_USB_COMPLETE_HANDLER RtmpDrvUsbBulkOutPsPollComplete = NULL;
 RTMP_DRV_USB_COMPLETE_HANDLER RtmpDrvUsbBulkRxComplete = NULL;
@@ -840,6 +871,13 @@ USBHST_STATUS RTUSBBulkOutNullFrameComplete(URBCompleteStatus Status, purbb_t pU
 {
 	RtmpDrvUsbBulkOutNullFrameComplete((VOID *)pURB);
 }
+
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+USBHST_STATUS RTUSBBulkOutHCCANullFrameComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs)
+{
+	RtmpDrvUsbBulkOutHCCANullFrameComplete((VOID *)pURB);
+}
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 
 USBHST_STATUS RTUSBBulkOutRTSFrameComplete(URBCompleteStatus Status, purbb_t pURB, pregs *pt_regs)
 {
@@ -865,6 +903,9 @@ VOID RtmpNetOpsInit(
 	pDrvNetOps->RtmpNetUsbBulkOutDataPacketComplete = (RTMP_DRV_USB_COMPLETE_HANDLER)RTUSBBulkOutDataPacketComplete;
 	pDrvNetOps->RtmpNetUsbBulkOutMLMEPacketComplete = (RTMP_DRV_USB_COMPLETE_HANDLER)RTUSBBulkOutMLMEPacketComplete;
 	pDrvNetOps->RtmpNetUsbBulkOutNullFrameComplete = (RTMP_DRV_USB_COMPLETE_HANDLER)RTUSBBulkOutNullFrameComplete;
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+	pDrvNetOps->RtmpNetUsbBulkOutHCCANullFrameComplete = (RTMP_DRV_USB_COMPLETE_HANDLER)RTUSBBulkOutHCCANullFrameComplete;
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 	pDrvNetOps->RtmpNetUsbBulkOutRTSFrameComplete = (RTMP_DRV_USB_COMPLETE_HANDLER)RTUSBBulkOutRTSFrameComplete;
 	pDrvNetOps->RtmpNetUsbBulkOutPsPollComplete = (RTMP_DRV_USB_COMPLETE_HANDLER)RTUSBBulkOutPsPollComplete;
 	pDrvNetOps->RtmpNetUsbBulkRxComplete = (RTMP_DRV_USB_COMPLETE_HANDLER)RTUSBBulkRxComplete;
@@ -880,6 +921,9 @@ VOID RtmpNetOpsSet(
 	RtmpDrvUsbBulkOutDataPacketComplete = pDrvNetOps->RtmpDrvUsbBulkOutDataPacketComplete;
 	RtmpDrvUsbBulkOutMLMEPacketComplete = pDrvNetOps->RtmpDrvUsbBulkOutMLMEPacketComplete;
 	RtmpDrvUsbBulkOutNullFrameComplete = pDrvNetOps->RtmpDrvUsbBulkOutNullFrameComplete;
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+	RtmpDrvUsbBulkOutHCCANullFrameComplete = pDrvNetOps->RtmpDrvUsbBulkOutHCCANullFrameComplete;
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 	RtmpDrvUsbBulkOutRTSFrameComplete = pDrvNetOps->RtmpDrvUsbBulkOutRTSFrameComplete;
 	RtmpDrvUsbBulkOutPsPollComplete = pDrvNetOps->RtmpDrvUsbBulkOutPsPollComplete;
 	RtmpDrvUsbBulkRxComplete = pDrvNetOps->RtmpDrvUsbBulkRxComplete;

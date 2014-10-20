@@ -196,6 +196,8 @@
 #define fRTMP_ADAPTER_DISABLE_DOT_11N		 0x00000001
 #define fRTMP_ADAPTER_WSC_PBC_PIN0	         0x00000002
 #define fRTMP_ADAPTER_TSO_SUPPORT		     0x00000004
+#define fRTMP_ADAPTER_DISABLE_DEQUEUE		 0x00000008
+
 #ifdef CONFIG_PM
 #ifdef USB_SUPPORT_SELECTIVE_SUSPEND
 #define fRTMP_ADAPTER_SUSPEND 0x00800000
@@ -996,6 +998,17 @@
 /* */
 /* AP's SYNC state machine: states, events, total function # */
 /* */
+#ifdef CONFIG_MULTI_CHANNEL
+#define AP_SYNC_IDLE                    0
+#ifdef AP_SCAN_SUPPORT
+#define AP_SCAN_LISTEN					1
+#define AP_SCAN_PENDING               2
+#define AP_MAX_SYNC_STATE               3
+#else
+#define AP_SCAN_PENDING               1
+#define AP_MAX_SYNC_STATE               2
+#endif
+#else
 #define AP_SYNC_IDLE                    0
 #ifdef AP_SCAN_SUPPORT
 #define AP_SCAN_LISTEN					1
@@ -1003,6 +1016,8 @@
 #else
 #define AP_MAX_SYNC_STATE               1
 #endif
+#endif /*CONFIG_MULTI_CHANNEL*/
+
 
 #define AP_SYNC_MACHINE_BASE		0
 #define APMT2_PEER_PROBE_REQ		0
@@ -1150,7 +1165,10 @@
 #define BLOCK_ACK                   0x60	/* b6:5 = 11 */
 
 #ifdef USB_BULK_BUF_ALIGMENT
+#ifndef BUF_ALIGMENT_RINGSIZE
+#undef BUF_ALIGMENT_RINGSIZE
 #define BUF_ALIGMENT_RINGSIZE         6	/*BUF_ALIGMENT_RINGSIZE must  >= 3 */
+#endif
 #endif /* USB_BULK_BUF_ALIGMENT */
 
 
@@ -1646,6 +1664,33 @@ enum IEEE80211_BAND {
   IEEE80211_BAND_5G,
   IEEE80211_BAND_NUMS
 };
+
+#ifdef CONFIG_SWITCH_CHANNEL_OFFLOAD
+#define CHANNEL_SWITCH_OFFLOAD 0x68 
+#define CHANNEL_MCU_READY 0x7064
+#endif /* CONFIG_SWITCH_CHANNEL_OFFLOAD */
+
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+#define HW_NULL_FRAME_1_OFFSET 0x7700
+#define HW_NULL_FRAME_2_OFFSET 0x7780
+
+enum {
+	EDCA_AC0_DEQUEUE_DISABLE = (1 << 0),
+	EDCA_AC1_DEQUEUE_DISABLE = (1 << 1),
+	EDCA_AC2_DEQUEUE_DISABLE = (1 << 2),
+	EDCA_AC3_DEQUEUE_DISBALE = (1 << 3),
+	HCCA_DEQUEUE_DISABLE = (1 << 4)
+};
+
+enum {
+	HCCA_TO_EDCA,
+	EDCA_TO_HCCA = 0x55
+};
+
+#define MUL_CHANNEL_ENABLE 0x77
+#define HCCA_TIMEOUT	400
+#define EDCA_TIMEOUT	400
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 
 /* Advertismenet Protocol ID definitions */
 enum DOT11U_ADVERTISMENT_PROTOCOL_ID {

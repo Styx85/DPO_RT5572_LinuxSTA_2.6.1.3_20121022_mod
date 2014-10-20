@@ -144,6 +144,7 @@ VOID STARxDataFrameAnnounce(
 		}
 
 
+
 		{
 			/* drop all non-EAP DATA frame before */
 			/* this client's Port-Access-Control is secured */
@@ -347,6 +348,7 @@ VOID STAHandleRxDataFrame(
 				/* Force driver to fall into sleep mode when rcv EOSP frame */
 					if (!OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_DOZE))
 					{
+						{
 
 #ifdef RTMP_MAC_USB
 					RTEnqueueInternalCmd(pAd,
@@ -354,6 +356,7 @@ VOID STAHandleRxDataFrame(
 							     NULL, 0);
 #endif /* RTMP_MAC_USB */
 				}
+			}
 			}
 			}
 
@@ -417,7 +420,7 @@ VOID STAHandleRxDataFrame(
 			if ((pHeader->FC.FrDs == 0) && (pHeader->FC.ToDs == 0))
 				RX_BLK_SET_FLAG(pRxBlk, fRX_DLS);
 			else
-#endif
+#endif /* defined(DOT11Z_TDLS_SUPPORT) || defined(QOS_DLS_SUPPORT) */
 				ASSERT(pRxWI->WirelessCliID == BSSID_WCID);
 		}
 
@@ -1159,8 +1162,10 @@ VOID STASendPackets(
 
 					pEntry = MacTableLookup(pAd, pSrcBufVA);
 
-					if (pEntry
-					    && (IS_ENTRY_DLS(pEntry)
+					if (pEntry && (0
+#ifdef QOS_DLS_SUPPORT
+						|| IS_ENTRY_DLS(pEntry)
+#endif /* QOS_DLS_SUPPORT */
 						)) {
 						RTMP_SET_PACKET_WCID(pPacket, pEntry->Aid);
 					} else {
@@ -1259,7 +1264,7 @@ NDIS_STATUS STASendPacket(
 				pEntry = &pAd->MacTab.Content[tmpWcid];
 				Rate = pAd->MacTab.Content[tmpWcid].CurrTxRate;
 			} else
-#endif
+#endif /* defined(QOS_DLS_SUPPORT) || defined(DOT11Z_TDLS_SUPPORT) */
 			{
 				pEntry = &pAd->MacTab.Content[BSSID_WCID];
 				RTMP_SET_PACKET_WCID(pPacket, BSSID_WCID);
@@ -1592,6 +1597,85 @@ VOID RTMPSendNullFrame(
 
 }
 
+#ifdef CONFIG_MULTI_CHANNEL
+VOID RTMPP2PSendNullFrame(
+	IN PRTMP_ADAPTER pAd,
+	IN UCHAR TxRate,
+	IN BOOLEAN bQosNull,
+	IN USHORT PwrMgmt)
+{
+	UCHAR NullFrame[48];
+	ULONG Length;
+	PHEADER_802_11 pHeader_802_11;
+	PAPCLI_STRUCT pApCliEntry = NULL;
+	 PMAC_TABLE_ENTRY pEntry = NULL;
+	pApCliEntry = &pAd->ApCfg.ApCliTab[0];
+
+
+	if (pApCliEntry == NULL || !pApCliEntry->Valid)
+		return;
+	
+ 	pEntry = MacTableLookup(pAd, pApCliEntry->CfgApCliBssid);
+
+	if (pEntry == NULL)
+		return;
+	/* WPA 802.1x secured port control */
+	if (((pEntry->AuthMode == Ndis802_11AuthModeWPA) ||
+	     (pEntry->AuthMode == Ndis802_11AuthModeWPAPSK) ||
+	     (pEntry->AuthMode == Ndis802_11AuthModeWPA2) ||
+	     (pEntry->AuthMode == Ndis802_11AuthModeWPA2PSK)
+	    ) && (pEntry->PortSecured == WPA_802_1X_PORT_NOT_SECURED)) {
+		return;
+	}
+
+	NdisZeroMemory(NullFrame, 48);
+	Length = sizeof (HEADER_802_11);
+
+	pHeader_802_11 = (PHEADER_802_11) NullFrame;
+
+	pHeader_802_11->FC.Type = BTYPE_DATA;
+	pHeader_802_11->FC.SubType = SUBTYPE_NULL_FUNC;
+	pHeader_802_11->FC.ToDs = 1;
+	COPY_MAC_ADDR(pHeader_802_11->Addr1, pEntry->Addr);
+	COPY_MAC_ADDR(pHeader_802_11->Addr2, pApCliEntry->CurrentAddress);
+	COPY_MAC_ADDR(pHeader_802_11->Addr3, pApCliEntry->CfgApCliBssid);
+
+	if (pAd->CommonCfg.bAPSDForcePowerSave)
+	{
+		pHeader_802_11->FC.PwrMgmt = PWR_SAVE;
+	}
+	else
+	{
+		BOOLEAN FlgCanPmBitSet = TRUE;
+
+
+		if (FlgCanPmBitSet == TRUE)
+		pHeader_802_11->FC.PwrMgmt = PwrMgmt;
+		else
+			pHeader_802_11->FC.PwrMgmt = PWR_ACTIVE;
+	}
+
+	pHeader_802_11->Duration = pAd->CommonCfg.Dsifs + RTMPCalcDuration(pAd, TxRate, 14);
+
+	/* sequence is increased in MlmeHardTx */
+	pHeader_802_11->Sequence = pAd->Sequence;
+	pAd->Sequence = (pAd->Sequence + 1) & MAXSEQ;	/* next sequence  */
+
+	/* Prepare QosNull function frame */
+	if (bQosNull) {
+		pHeader_802_11->FC.SubType = SUBTYPE_QOS_NULL;
+
+		/* copy QOS control bytes */
+		NullFrame[Length] = 0;
+		NullFrame[Length + 1] = 0;
+		Length += 2;	/* if pad with 2 bytes for alignment, APSD will fail */
+	}
+	DBGPRINT(RT_DEBUG_OFF, (" RTMPP2PSendNullFrame Addr = %02x:%02x:%02x:%02x:%02x:%02x pwr=%d\n", PRINT_MAC(pHeader_802_11->Addr1),PwrMgmt));
+	
+	HAL_KickOutNullFrameTx(pAd, 0, NullFrame, Length);
+}
+#endif /*CONFIG_MULTI_CHANNEL*/
+
 /*
 --------------------------------------------------------
 FIND ENCRYPT KEY AND DECIDE CIPHER ALGORITHM
@@ -1625,14 +1709,12 @@ VOID STAFindCipherAlgorithm(
 			Cipher = pAd->StaCfg.PairCipher;	/* Cipher for Unicast */
 
 		if (RTMP_GET_PACKET_EAPOL(pTxBlk->pPacket)) {
-			ASSERT(pAd->SharedKey[BSS0][0].CipherAlg <=
-			       CIPHER_CKIP128);
 
 			/* 4-way handshaking frame must be clear */
-			if (!(TX_BLK_TEST_FLAG(pTxBlk, fTX_bClearEAPFrame)) &&
-			    (pAd->SharedKey[BSS0][0].CipherAlg) &&
-			    (pAd->SharedKey[BSS0][0].KeyLen)) {
-				CipherAlg = pAd->SharedKey[BSS0][0].CipherAlg;
+			if (!(TX_BLK_TEST_FLAG(pTxBlk, fTX_bClearEAPFrame)) && pMacEntry &&
+			    (pMacEntry->PairwiseKey.CipherAlg) && 
+			    (pMacEntry->PairwiseKey.KeyLen)) { 
+				CipherAlg = pMacEntry->PairwiseKey.CipherAlg; 
 				KeyIdx = 0;
 			}
 		} else if (Cipher == Ndis802_11Encryption1Enabled) {
@@ -1641,7 +1723,9 @@ VOID STAFindCipherAlgorithm(
 			   (Cipher == Ndis802_11Encryption3Enabled)) {
 			if ((*pSrcBufVA & 0x01) && (ADHOC_ON(pAd)))	/* multicast */
 				KeyIdx = pAd->StaCfg.DefaultKeyId;
-			else if (pAd->SharedKey[BSS0][0].KeyLen)
+			else if (ADHOC_ON(pAd) && pAd->SharedKey[BSS0][0].KeyLen)
+				KeyIdx = 0;
+			else if (pMacEntry && pMacEntry->PairwiseKey.KeyLen) 
 				KeyIdx = 0;
 			else
 				KeyIdx = pAd->StaCfg.DefaultKeyId;
@@ -1650,7 +1734,10 @@ VOID STAFindCipherAlgorithm(
 		if (KeyIdx == 0xff)
 			CipherAlg = CIPHER_NONE;
 		else if ((Cipher == Ndis802_11EncryptionDisabled)
-			 || (pAd->SharedKey[BSS0][KeyIdx].KeyLen == 0))
+			 || (((Cipher == Ndis802_11Encryption1Enabled) && (pAd->SharedKey[BSS0][KeyIdx].KeyLen == 0))
+			|| (((Cipher == Ndis802_11Encryption2Enabled) || (Cipher == Ndis802_11Encryption3Enabled)
+			|| (Cipher == Ndis802_11Encryption4Enabled)) && pMacEntry && (pMacEntry->PairwiseKey.KeyLen == 0))
+			&& (!ADHOC_ON(pAd))) || (ADHOC_ON(pAd) && (pAd->SharedKey[BSS0][KeyIdx].KeyLen == 0)))
 			CipherAlg = CIPHER_NONE;
 #ifdef WPA_SUPPLICANT_SUPPORT
 		else if (pAd->StaCfg.WpaSupplicantUP &&
@@ -1661,8 +1748,19 @@ VOID STAFindCipherAlgorithm(
 			CipherAlg = CIPHER_NONE;
 #endif /* WPA_SUPPLICANT_SUPPORT */
 		else {
+			if (ADHOC_ON(pAd)) {
 			CipherAlg = pAd->SharedKey[BSS0][KeyIdx].CipherAlg;
 			pKey = &pAd->SharedKey[BSS0][KeyIdx];
+		}
+			else if (((Cipher == Ndis802_11Encryption2Enabled) ||
+                           (Cipher == Ndis802_11Encryption3Enabled) ||
+			   (Cipher == Ndis802_11Encryption4Enabled)) && pMacEntry) {
+				CipherAlg = pMacEntry->PairwiseKey.CipherAlg;
+				pKey = &pMacEntry->PairwiseKey;
+			} else {
+				CipherAlg = pAd->SharedKey[BSS0][KeyIdx].CipherAlg;
+				pKey = &pAd->SharedKey[BSS0][KeyIdx];
+			}
 		}
 	}
 
@@ -2438,6 +2536,7 @@ VOID STA_Legacy_Frame_Tx(
 	HEADER_802_11 *pHeader_802_11;
 	PUCHAR pHeaderBufPtr;
 	USHORT FreeNumber = 0;
+	MAC_TABLE_ENTRY *pMacEntry;
 	BOOLEAN bVLANPkt;
 	PQUEUE_ENTRY pQEntry;
 	UINT8 TXWISize = pAd->chipCap.TXWISize;
@@ -2591,6 +2690,9 @@ VOID STA_Legacy_Frame_Tx(
 
 	RTMPWriteTxWI_Data(pAd, (PTXWI_STRUC) (&pTxBlk->HeaderBuf[TXINFO_SIZE]),
 			   pTxBlk);
+
+	pMacEntry = pTxBlk->pMacEntry;
+	pMacEntry->isCached = FALSE;
 	HAL_WriteTxResource(pAd, pTxBlk, TRUE, &FreeNumber);
 
 #ifdef DBG_CTRL_SUPPORT
@@ -3137,6 +3239,12 @@ NDIS_STATUS STAHardTransmit(
 {
 	NDIS_PACKET *pPacket;
 	PQUEUE_ENTRY pQEntry;
+#ifdef CONFIG_MULTI_CHANNEL
+	if (INFRA_ON(pAd) && (pAd->LatchRfRegs.Channel != pAd->CommonCfg.Channel))
+	{
+		return NDIS_STATUS_FAILURE;
+	}
+#endif /*CONFIG_MULTI_CHANNEL*/
 
 	/*
 	   ---------------------------------------------

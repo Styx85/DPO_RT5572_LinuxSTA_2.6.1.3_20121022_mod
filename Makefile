@@ -62,6 +62,7 @@ PLATFORM = PC
 #PLATFORM = RALINK_3352
 #PLATFORM = UBICOM_IPX8
 #PLATFORM = INTELP6
+#PLATFORM = MSTAR
 
 #APSOC
 ifeq ($(MODULE),3050)
@@ -198,8 +199,8 @@ CROSS_COMPILE =
 endif
 
 ifeq ($(PLATFORM),INTELP6)
-#LINUX_SRC = /tftpboot/IntelCE-20.0.11052.243193/project_build_i686/IntelCE/kernel-20.0.11024.238456/linux-2.6.35
-#CROSS_COMPILE = /tftpboot/IntelCE-20.0.11052.243193/build_i686/i686-linux-elf/bin/i686-cm-linux-
+LINUX_SRC = /tftpboot/IntelCE-20.0.11052.243193/project_build_i686/IntelCE/kernel-20.0.11024.238456/linux-2.6.35
+CROSS_COMPILE = /tftpboot/IntelCE-20.0.11052.243193/build_i686/i686-linux-elf/bin/i686-cm-linux-
 endif
 
 ifeq ($(PLATFORM),IXP)
@@ -298,6 +299,12 @@ endif
 ifeq ($(PLATFORM),MVL5)
 LINUX_SRC = /home2/charlestu/AP-VT3426/linux-2.6.18
 CROSS_COMPILE = /opt/montavista/pro/devkit/arm/v5t_le_mvl5/bin/arm_v5t_le-
+endif
+
+ifeq ($(PLATFORM),MSTAR) 
+LINUX_SRC = /opt/yuksel/Thorium/Linux_Mboot/RedLion/2.6.28.9
+LINUX_SRC_MODULE = /opt/yuksel/Thorium/Linux_Mboot/RedLion/2.6.28.9/drivers/net/wireless/
+CROSS_COMPILE = /opt/mstar/mips-4.3/bin/mips-linux-gnu-
 endif
 
 export OSABL RT28xx_DIR RT28xx_MODE LINUX_SRC CROSS_COMPILE CROSS_COMPILE_INCLUDE PLATFORM RELEASE CHIPSET MODULE RTMP_SRC_DIR LINUX_SRC_MODULE TARGET HAS_WOW_SUPPORT HAS_SWITCH_CHANNEL_OFFLOAD

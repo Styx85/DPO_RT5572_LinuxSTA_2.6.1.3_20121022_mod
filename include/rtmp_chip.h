@@ -899,7 +899,7 @@ struct _RTMP_CHIP_CAP_ {
 	UINT16 ChannelParamsSize;
 	UCHAR *ChannelParam;
 	INT XtalType;
-#endif
+#endif /*CONFIG_SWITCH_CHANNEL_OFFLOAD*/
 };
 
 typedef VOID (*CHIP_SPEC_FUNC)(VOID *Adaptor, VOID *pData, ULONG	Data);

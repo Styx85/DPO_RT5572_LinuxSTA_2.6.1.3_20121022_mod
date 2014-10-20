@@ -38,6 +38,20 @@ INT Set_AdhocN_Proc(
     IN  PSTRING			arg);
 
 
+#ifdef CONFIG_MULTI_CHANNEL
+INT Set_StaStayTime_Proc(
+	IN	PRTMP_ADAPTER	pAd, 
+	IN	PSTRING			arg);
+
+INT Set_P2pStayTime_Proc(
+	IN	PRTMP_ADAPTER	pAd, 
+	IN	PSTRING			arg);
+
+INT Set_LinkDown_Proc(
+	IN	PRTMP_ADAPTER	pAd, 
+	IN	PSTRING			arg);
+#endif /* CONFIG_MULTI_CHANNEL */
+
 
 
 #ifdef CARRIER_DETECTION_SUPPORT
@@ -208,6 +222,12 @@ static struct {
 #ifdef SINGLE_SKU
 	{"ModuleTxpower",				Set_ModuleTxpower_Proc},
 #endif /* SINGLE_SKU */
+
+#ifdef CONFIG_MULTI_CHANNEL
+	{"StaStayTime",				Set_StaStayTime_Proc},
+	{"P2pStayTime",				Set_P2pStayTime_Proc},
+	{"LinkDown",				Set_LinkDown_Proc},
+#endif /* CONFIG_MULTI_CHANNEL */
 
 
 	{NULL,}
@@ -1653,6 +1673,44 @@ INT Set_AdhocN_Proc(
 	return TRUE;
 }
 
+
+
+#ifdef CONFIG_MULTI_CHANNEL
+INT Set_StaStayTime_Proc(
+	IN	PRTMP_ADAPTER	pAd, 
+	IN	PSTRING			arg)
+{
+	pAd->Mlme.EDCAToHCCATimerValue = (UINT32)simple_strtol(arg, 0, 10);
+	DBGPRINT(RT_DEBUG_TRACE, ("IF Set_StaStayTime_Proc::(EDCAToHCCATimerValue=%d)\n", pAd->Mlme.EDCAToHCCATimerValue));
+	return TRUE;
+}
+
+INT Set_P2pStayTime_Proc(
+	IN	PRTMP_ADAPTER	pAd, 
+	IN	PSTRING			arg)
+{
+	pAd->Mlme.HCCAToEDCATimerValue = (UINT32)simple_strtol(arg, 0, 10);
+	DBGPRINT(RT_DEBUG_TRACE, ("IF Set_StaStayTime_Proc::(HCCAToEDCATimerValue=%d)\n", pAd->Mlme.HCCAToEDCATimerValue));
+	return TRUE;
+}
+
+INT Set_LinkDown_Proc(
+	IN	PRTMP_ADAPTER	pAd, 
+	IN	PSTRING			arg)
+{
+		MLME_DISASSOC_REQ_STRUCT DisassocReq;
+		if (INFRA_ON(pAd)) {
+
+				DBGPRINT(RT_DEBUG_TRACE,
+					 ("CntlOidSsidProc():CNTL - disassociate with current AP...\n"));
+				DisassocParmFill(pAd, &DisassocReq, pAd->CommonCfg.Bssid,
+						 REASON_DISASSOC_STA_LEAVING);
+				MlmeEnqueue(pAd, ASSOC_STATE_MACHINE, MT2_MLME_DISASSOC_REQ,
+					    sizeof (MLME_DISASSOC_REQ_STRUCT), &DisassocReq, 0);
+				pAd->Mlme.CntlMachine.CurrState = CNTL_WAIT_DISASSOC;
+		}
+}
+#endif /* CONFIG_MULTI_CHANNEL */
 
 
 
@@ -3333,6 +3391,7 @@ INT RTMPQueryInformation(
 /*            kfree(pBssidList); */
 			os_free_mem(NULL, pBssidList);
             break;
+	
         case OID_802_3_CURRENT_ADDRESS:
             wrq->u.data.length = MAC_ADDR_LEN;
             Status = copy_to_user(wrq->u.data.pointer, &pAd->CurrentAddress, wrq->u.data.length);
@@ -5486,22 +5545,42 @@ static void set_quality(
 {
 	memcpy(pSignal->Bssid, pBssEntry->Bssid, MAC_ADDR_LEN);
 
+	BOOLEAN bInitial = FALSE;
+	if (!(pBssEntry->AvgRssiX8 | pBssEntry->AvgRssi))
+	{
+		bInitial = TRUE;
+	}
+
+	if (bInitial)
+	{
+		pBssEntry->AvgRssiX8 = pBssEntry->Rssi << 3;
+		pBssEntry->AvgRssi  = pBssEntry->Rssi;
+		DBGPRINT(RT_DEBUG_INFO, ("%s:: set bInitial!!! pBssEntry->AvgRssiX8 = %d, pBssEntry->AvgRssi = %d, pBssEntry->Rssi= %d\n", __func__, pBssEntry->AvgRssiX8, pBssEntry->AvgRssi, pBssEntry->Rssi));
+	}
+	else
+	{
+		pBssEntry->AvgRssiX8 = (pBssEntry->AvgRssiX8 - pBssEntry->AvgRssi) + pBssEntry->Rssi;
+		DBGPRINT(RT_DEBUG_INFO, ("%s:: pBssEntry->AvgRssiX8 = %d, pBssEntry->AvgRssi = %d, pBssEntry->Rssi= %d\n", __func__, pBssEntry->AvgRssiX8, pBssEntry->AvgRssi, pBssEntry->Rssi));
+	}
+
+	pBssEntry->AvgRssi = pBssEntry->AvgRssiX8 >> 3;
+
 	/* Normalize Rssi */
-	if (pBssEntry->Rssi >= -50)
+	if (pBssEntry->AvgRssi >= -50)
         pSignal->ChannelQuality = 100;
-	else if (pBssEntry->Rssi >= -80) /* between -50 ~ -80dbm */
-		pSignal->ChannelQuality = (__u8)(24 + ((pBssEntry->Rssi + 80) * 26)/10);
-	else if (pBssEntry->Rssi >= -90)   /* between -80 ~ -90dbm */
-        pSignal->ChannelQuality = (__u8)((pBssEntry->Rssi + 90) * 26)/10;   
+	else if (pBssEntry->AvgRssi >= -80) /* between -50 ~ -80dbm */
+		pSignal->ChannelQuality = (__u8)(24 + ((pBssEntry->AvgRssi + 80) * 26)/10);
+	else if (pBssEntry->AvgRssi >= -90)   /* between -80 ~ -90dbm */
+        pSignal->ChannelQuality = (__u8)((pBssEntry->AvgRssi + 90) * 26)/10;   
 	else
 		pSignal->ChannelQuality = 0;
-        
-    pSignal->Rssi = (__u8)(pBssEntry->Rssi);
 
-    if (pBssEntry->Rssi >= -70)
+	pSignal->Rssi = (__u8)(pBssEntry->AvgRssi);
+
+	if (pBssEntry->AvgRssi >= -70)
 		pSignal->Noise = -92;
 	else
-		pSignal->Noise = pBssEntry->Rssi - pBssEntry->MinSNR;		
+		pSignal->Noise = pBssEntry->AvgRssi - pBssEntry->MinSNR;
 }
 
 

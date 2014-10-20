@@ -87,7 +87,8 @@ NDIS_STATUS	RTUSBFreeDescriptorRequest(
 	if( ((pHTTXContext->CurWriteIdx< pHTTXContext->NextBulkIdx  ) &&   (pHTTXContext->NextBulkIdx - pHTTXContext->CurWriteIdx == 1)) 
 		|| ((pHTTXContext->CurWriteIdx ==(BUF_ALIGMENT_RINGSIZE -1) ) &&  (pHTTXContext->NextBulkIdx == 0 )))
 	{
-		RTUSB_SET_BULK_FLAG(pAd, (fRTUSB_BULK_OUT_DATA_NORMAL << BulkOutPipeId));
+			DBGPRINT(RT_DEBUG_ERROR,("RTUSBFreeDescriptorRequest USB_BULK_BUF_ALIGMENT c1!!\n"));
+			RTUSB_SET_BULK_FLAG(pAd, (fRTUSB_BULK_OUT_DATA_NORMAL << BulkOutPipeId));
 
 	}
 	else if (pHTTXContext->bCurWriting == TRUE)
@@ -194,16 +195,14 @@ VOID RTMPWriteTxInfo(
 {
 	pTxInfo->USBDMATxPktLen = USBDMApktLen;
 	pTxInfo->QSEL = QueueSel;
+#if !defined(CONFIG_MULTI_CHANNEL) && !defined(DOT11Z_TDLS_SUPPORT)
 	if (QueueSel != FIFO_EDCA)
 		DBGPRINT(RT_DEBUG_TRACE, ("====> QueueSel != FIFO_EDCA<============\n"));
+#endif /* !CONFIG_MULTI_CHANNEL */
 	pTxInfo->USBDMANextVLD = FALSE; /*NextValid;   Need to check with Jan about this.*/
 	pTxInfo->USBDMATxburst = TxBurst;
 	pTxInfo->WIV = bWiv;
-#ifndef USB_BULK_BUF_ALIGMENT
-	pTxInfo->SwUseLastRound = 0;
-#else
-	pTxInfo->bFragLasAlignmentsectiontRound = 0;
-#endif /* USB_BULK_BUF_ALIGMENT */
+	pTxInfo->SwRingUseLastRound = 0;
 
 #ifdef CONFIG_TSO_SUPPORT
 	if (RTMP_TEST_MORE_FLAG(pAd, fRTMP_ADAPTER_TSO_SUPPORT))
@@ -214,9 +213,6 @@ VOID RTMPWriteTxInfo(
 		pTxInfo->IPOffset = 0;
 	}
 #endif /* CONFIG_TSO_SUPPORT */
-
-	
 }
-
 
 #endif /* RTMP_MAC_USB */

@@ -114,7 +114,11 @@ RTMP_REG_PAIR	MACRegTable[] =	{
 	{CCK_PROT_CFG,			0x05740003 /*0x01740003*/},	/* Initial Auto_Responder, because QA will turn off Auto-Responder. And RTS threshold is enabled. */
 	{OFDM_PROT_CFG,			0x05740003 /*0x01740003*/},	/* Initial Auto_Responder, because QA will turn off Auto-Responder. And RTS threshold is enabled. */
 #ifdef RTMP_MAC_USB
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+	{PBF_CFG,				0xf4001e}, 
+#else
 	{PBF_CFG, 				0xf40006}, 		/* Only enable Queue 2*/
+#endif /* !defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 	{MM40_PROT_CFG,			0x3F44084},		/* Initial Auto_Responder, because QA will turn off Auto-Responder*/
 	{WPDMA_GLO_CFG,			0x00000030},
 #endif /* RTMP_MAC_USB */
@@ -1250,17 +1254,19 @@ VOID	NICInitAsicFromEEPROM(
 #ifdef RT30xx
 	UCHAR			bbpreg = 0;
 #endif /* RT30xx */
-	
-	DBGPRINT(RT_DEBUG_TRACE, ("--> NICInitAsicFromEEPROM\n"));
-	for(i = EEPROM_BBP_ARRAY_OFFSET; i < NUM_EEPROM_BBP_PARMS; i++)
+	if (!IS_RT3593(pAd))
 	{
-		UCHAR BbpRegIdx, BbpValue;
-	
-		if ((pAd->EEPROMDefaultValue[i] != 0xFFFF) && (pAd->EEPROMDefaultValue[i] != 0))
+		DBGPRINT(RT_DEBUG_TRACE, ("--> NICInitAsicFromEEPROM\n"));
+		for(i = EEPROM_BBP_ARRAY_OFFSET; i < NUM_EEPROM_BBP_PARMS; i++)
 		{
-			BbpRegIdx = (UCHAR)(pAd->EEPROMDefaultValue[i] >> 8);
-			BbpValue  = (UCHAR)(pAd->EEPROMDefaultValue[i] & 0xff);
-			RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BbpRegIdx, BbpValue);
+			UCHAR BbpRegIdx, BbpValue;
+		
+			if ((pAd->EEPROMDefaultValue[i] != 0xFFFF) && (pAd->EEPROMDefaultValue[i] != 0))
+			{
+				BbpRegIdx = (UCHAR)(pAd->EEPROMDefaultValue[i] >> 8);
+				BbpValue  = (UCHAR)(pAd->EEPROMDefaultValue[i] & 0xff);
+				RTMP_BBP_IO_WRITE8_BY_REG_ID(pAd, BbpRegIdx, BbpValue);
+			}
 		}
 	}
 
@@ -1474,7 +1480,7 @@ VOID	NICInitAsicFromEEPROM(
 		}
 
 		/* improve power consumption in RT3071 Ver.E */
-		if (((pAd->MACVersion & 0xffff) >= 0x0211) && !IS_RT3593(pAd) && !IS_RT5390(pAd))
+		if (((pAd->MACVersion & 0xffff) >= 0x0211) && !IS_RT3593(pAd))
 		{
 			RTMP_BBP_IO_READ8_BY_REG_ID(pAd, BBP_R31, &bbpreg);
 			bbpreg &= (~0x3);
@@ -1739,6 +1745,12 @@ retry:
 	pAd->BeaconOffset[6] = pAd->chipCap.BcnBase[6];
 	pAd->BeaconOffset[7] = pAd->chipCap.BcnBase[7];
 	
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+	/* Record HW Null Frame offset */
+	pAd->NullBufOffset[0] = HW_NULL_FRAME_1_OFFSET;
+	pAd->NullBufOffset[1] = HW_NULL_FRAME_2_OFFSET;
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
+
 
 	
 	/* write all shared Ring's base address into ASIC*/
@@ -1763,6 +1775,14 @@ retry:
 		}
 		return NDIS_STATUS_FAILURE;
 	}
+
+#ifdef RTMP_MAC_USB
+       if (pAd->FWinAutoRunMode)
+        {
+                AsicSendCommandToMcu(pAd, 0x36, 0xff, 0xff, 0x08, FALSE);
+                RTMPusecDelay(10);
+        }
+#endif /* RTMP_MAC_USB */
 
 
 
@@ -1976,7 +1996,12 @@ NDIS_STATUS	NICInitializeAsic(
 	/* Default PCI clock cycle per ms is different as default setting, which is based on PCI.*/
 	RTMP_IO_READ32(pAd, USB_CYC_CFG, &Counter);
 	Counter&=0xffffff00;
+#if !defined(CONFIG_MULTI_CHANNEL) && !defined(DOT11Z_TDLS_SUPPORT)
 	Counter|=0x000001e;
+#else
+	Counter |= 0x0000000;
+#endif /* !defined(CONFIG_MULTI_CHANNEL) && !defined(DOT11Z_TDLS_SUPPORT) */
+
 	RTMP_IO_WRITE32(pAd, USB_CYC_CFG, Counter);
 #endif /* RTMP_MAC_USB */
 
@@ -3795,6 +3820,9 @@ INT RtmpRaDevCtrlInit(
 		DBGPRINT(RT_DEBUG_ERROR, ("Allocate vendor request temp buffer failed!\n"));
 		return FALSE;
 	}
+#if defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT)
+	RTMP_SEM_EVENT_INIT(&(pAd->MultiChannelLock), &pAd->RscSemMemList);
+#endif /* defined(CONFIG_MULTI_CHANNEL) || defined(DOT11Z_TDLS_SUPPORT) */
 #endif /* RTMP_MAC_USB */
 #ifdef MULTIPLE_CARD_SUPPORT
 #ifdef RTMP_FLASH_SUPPORT

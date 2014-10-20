@@ -1008,6 +1008,7 @@ static int CFG80211_OpsKeyAdd(
 		CFG80211DBG(RT_DEBUG_ERROR, ("80211> STA Key Add\n"));
 		RTMP_DRIVER_80211_STA_KEY_ADD(pAd, &KeyInfo);
 	}
+	
 #ifdef RT_P2P_SPECIFIC_WIRELESS_EVENT
 	if(pMacAddr)
 	{
