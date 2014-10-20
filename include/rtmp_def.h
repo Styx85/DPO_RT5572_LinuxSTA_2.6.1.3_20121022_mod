@@ -495,7 +495,7 @@
 #define MAX_LEN_OF_BSS_TABLE             1
 #define MAX_REORDERING_MPDU_NUM			 256
 #else
-#define MAX_LEN_OF_BSS_TABLE             64
+#define MAX_LEN_OF_BSS_TABLE             128 /* BssEntry number */
 #define MAX_REORDERING_MPDU_NUM			 512
 #endif
 
